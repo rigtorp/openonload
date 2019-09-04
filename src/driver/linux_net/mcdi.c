@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -527,16 +527,14 @@ static int efx_mcdi_acquire_sync(struct efx_mcdi_iface *mcdi)
 	 */
 	rc = wait_event_timeout(mcdi->wq,
 		atomic_cmpxchg(&mcdi->state,
-			       MCDI_STATE_QUIESCENT,
-			       MCDI_STATE_RUNNING_SYNC) ==
-		MCDI_STATE_QUIESCENT,
-		efx->type->mcdi_acquire_timeout ?
-			efx->type->mcdi_acquire_timeout(efx) :
-			MCDI_ACQUIRE_TIMEOUT);
+				MCDI_STATE_QUIESCENT,
+				MCDI_STATE_RUNNING_SYNC) ==
+				MCDI_STATE_QUIESCENT,
+				efx->type->mcdi_acquire_timeout ?
+					efx->type->mcdi_acquire_timeout(efx) :
+					MCDI_ACQUIRE_TIMEOUT);
 
-	if (rc == 0 &&
-	    atomic_cmpxchg(&mcdi->state, MCDI_STATE_QUIESCENT,
-			   MCDI_STATE_RUNNING_SYNC) != MCDI_STATE_QUIESCENT) {
+	if (rc == 0) {
 		if (efx_nic_hw_unavailable(efx))
 			return -ENETDOWN;
 

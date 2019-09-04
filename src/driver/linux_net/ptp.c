@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -290,6 +290,8 @@ struct efx_ptp_data;
  * @s_assert: sys assert time of hw_pps event
  * @n_assert: nic assert time of hw_pps event
  * @s_delta: computed delta between nic and sys clocks
+ * @hw_pps_work: work struct for handling hw_pps events
+ * @hw_pps_workwq: work queue for handling hw_pps events
  * @nic_hw_pps_enabled: Are hw_pps events enabled
  * @fd_count: Number of open fds
  * @major: device major number
@@ -303,6 +305,8 @@ struct efx_pps_data {
 	struct timespec64 s_assert;
 	ktime_t n_assert;
 	struct timespec64 s_delta;
+	struct work_struct hw_pps_work;
+	struct workqueue_struct *hw_pps_workwq;
 	bool nic_hw_pps_enabled;
 	int fd_count;
 	int major;
@@ -1721,11 +1725,7 @@ static inline void efx_ptp_process_rx(struct efx_nic *efx, struct sk_buff *skb)
 
 	/* Translate timestamps, as required */
 	if (match->state == PTP_PACKET_STATE_MATCHED &&
-#if !defined(EFX_USE_KCOMPAT) || !defined(EFX_HAVE_KTIME_UNION)
-	    timestamps->hwtstamp) {
-#else
 	    timestamps->hwtstamp.tv64) {
-#endif
 		efx_ptp_get_host_time(efx, timestamps);
 #ifdef CONFIG_SFC_DEBUGFS
 		efx_ptp_update_delta_stats(efx, timestamps);
@@ -2159,6 +2159,24 @@ int efx_ptp_pps_get_event(struct efx_nic *efx, struct efx_ts_get_pps *event)
 	return 0;
 }
 
+static void efx_ptp_hw_pps_worker(struct work_struct *work)
+{
+	struct efx_pps_data *pps =
+		container_of(work, struct efx_pps_data, hw_pps_work);
+
+	/* Get the sequence number from the packet
+	 * check against the last one, if new then add
+	 * to queue */
+
+	pps->s_assert = timespec64_sub(ktime_to_timespec64(pps->n_assert),
+				       pps->ptp->last_delta);
+	pps->s_delta = pps->ptp->last_delta;
+	pps->last_ev++;
+
+	if (waitqueue_active(&pps->read_data))
+		wake_up(&pps->read_data);
+}
+
 int efx_ptp_hw_pps_enable(struct efx_nic *efx, struct efx_ts_hw_pps *data)
 {
 	struct efx_pps_data *pps_data;
@@ -2252,6 +2270,11 @@ static int efx_ptp_create_pps(struct efx_ptp_data *ptp)
 	if (!pps)
 		return -ENOMEM;
 
+	INIT_WORK(&pps->hw_pps_work, efx_ptp_hw_pps_worker);
+	pps->hw_pps_workwq = create_singlethread_workqueue("sfc_hw_pps");
+	if (!pps->hw_pps_workwq)
+		goto fail1;
+
 	init_waitqueue_head(&pps->read_data);
 	pps->nic_hw_pps_enabled = false;
 
@@ -2259,12 +2282,14 @@ static int efx_ptp_create_pps(struct efx_ptp_data *ptp)
 				 &efx_sysfs_ktype,
 				 &ptp->efx->pci_dev->dev.kobj,
 				 "pps_stats"))
-		goto fail1;
+		goto fail2;
 
 	pps->ptp = ptp;
 	ptp->pps_data = pps;
 
 	return 0;
+fail2:
+	destroy_workqueue(pps->hw_pps_workwq);
 fail1:
 	kfree(pps);
 	ptp->pps_data = NULL;
@@ -2276,6 +2301,13 @@ static void efx_ptp_destroy_pps(struct efx_ptp_data *ptp)
 {
 	if (!ptp->pps_data)
 		return;
+
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_USE_CANCEL_WORK_SYNC)
+	cancel_work_sync(&ptp->pps_data->hw_pps_work);
+	flush_workqueue(ptp->pps_data->hw_pps_workwq);
+#endif
+
+	destroy_workqueue(ptp->pps_data->hw_pps_workwq);
 
 	kobject_del(&ptp->pps_data->kobj);
 
@@ -2309,22 +2341,8 @@ static const struct ptp_clock_info efx_phc_clock_info = {
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_PHC_SUPPORT) || defined(EFX_NOT_UPSTREAM)
 static int efx_create_pps_worker(struct efx_ptp_data *ptp)
 {
-	char busdevice[10];
-
-	snprintf(busdevice, sizeof(busdevice), "%02x:%02x",
-		 ptp->efx->pci_dev->bus->number,
-		 PCI_SLOT(ptp->efx->pci_dev->devfn));
-
 	INIT_WORK(&ptp->pps_work, efx_ptp_pps_worker);
-#if defined(EFX_NOT_UPSTREAM)
-	ptp->pps_workwq = efx_alloc_workqueue("sfc_pps_%s", WQ_UNBOUND |
-					      WQ_MEM_RECLAIM | WQ_SYSFS, 1,
-					      busdevice);
-#else
-	ptp->pps_workwq = alloc_workqueue("sfc_pps_%s", WQ_UNBOUND |
-					  WQ_MEM_RECLAIM | WQ_SYSFS, 1,
-					  busdevice);
-#endif
+	ptp->pps_workwq = create_singlethread_workqueue("sfc_pps");
 	if (!ptp->pps_workwq)
 		return -ENOMEM;
 	return 0;
@@ -3192,16 +3210,8 @@ static void hw_pps_event_pps(struct efx_nic *efx, struct efx_ptp_data *ptp)
 		EFX_QWORD_FIELD(ptp->evt_frags[1], MCDI_EVENT_DATA),
 		ptp->ts_corrections.pps_in);
 
-	if (pps->nic_hw_pps_enabled) {
-		pps->s_assert = timespec64_sub(
-			ktime_to_timespec64(pps->n_assert),
-			pps->ptp->last_delta);
-		pps->s_delta = pps->ptp->last_delta;
-		pps->last_ev++;
-
-		if (waitqueue_active(&pps->read_data))
-			wake_up(&pps->read_data);
-	}
+	if (pps->nic_hw_pps_enabled)
+		queue_work(pps->hw_pps_workwq, &pps->hw_pps_work);
 }
 #endif
 
@@ -3285,14 +3295,12 @@ void efx_time_sync_event(struct efx_channel *channel, efx_qword_t *ev)
 #define FUZZ (MINOR_TICKS_PER_SECOND / 10)
 #define EXPECTED_SYNC_EVENTS_PER_SECOND 4
 
-static inline u32 efx_rx_buf_timestamp_minor(struct efx_nic *efx,
-					     const u8 *prefix)
+static inline u32 efx_rx_buf_timestamp_minor(struct efx_nic *efx, const u8 *eh)
 {
 #if defined(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS)
-	return __le32_to_cpup((const __le32 *)(prefix +
-					       efx->type->rx_ts_offset));
+	return __le32_to_cpup((const __le32 *)(eh + efx->rx_packet_ts_offset));
 #else
-	const u8 *data = prefix + efx->type->rx_ts_offset;
+	const u8 *data = eh + efx->rx_packet_ts_offset;
 	return (u32)data[0]       |
 	       (u32)data[1] << 8  |
 	       (u32)data[2] << 16 |
@@ -3301,8 +3309,7 @@ static inline u32 efx_rx_buf_timestamp_minor(struct efx_nic *efx,
 }
 
 void __efx_rx_skb_attach_timestamp(struct efx_channel *channel,
-				   struct sk_buff *skb,
-				   const u8 *prefix)
+				   struct sk_buff *skb)
 {
 	struct efx_nic *efx = channel->efx;
 	u32 pkt_timestamp_major, pkt_timestamp_minor;
@@ -3318,7 +3325,8 @@ void __efx_rx_skb_attach_timestamp(struct efx_channel *channel,
 	if (channel->sync_events_state != SYNC_EVENTS_VALID)
 		return;
 
-	pkt_timestamp_minor = (efx_rx_buf_timestamp_minor(efx, prefix) +
+	pkt_timestamp_minor = (efx_rx_buf_timestamp_minor(efx,
+							  skb_mac_header(skb)) +
 			       (u32) efx->ptp_data->ts_corrections.rx) &
 			      (MINOR_TICKS_PER_SECOND - 1);
 
@@ -3328,7 +3336,7 @@ void __efx_rx_skb_attach_timestamp(struct efx_channel *channel,
 	diff = (pkt_timestamp_minor - channel->sync_timestamp_minor) &
 		(MINOR_TICKS_PER_SECOND - 1);
 	/* do we roll over a second boundary and need to carry the one? */
-	carry = channel->sync_timestamp_minor + diff >= MINOR_TICKS_PER_SECOND ?
+	carry = channel->sync_timestamp_minor + diff > MINOR_TICKS_PER_SECOND ?
 		1 : 0;
 
 	if (diff <= MINOR_TICKS_PER_SECOND / EXPECTED_SYNC_EVENTS_PER_SECOND +

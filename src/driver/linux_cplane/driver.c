@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -2709,6 +2709,12 @@ cicpos_handle_llap_msg(cicpos_parse_state_t *session, struct nlmsghdr *nlhdr)
     ci_assert_gt(rlen, 0);
     ci_assert(NULL != ifinfomsg);
 
+    /* we are only interested in ethernet interfaces */
+    if (ifinfomsg->ifi_type != ARPHRD_ETHER &&
+        ifinfomsg->ifi_type != ARPHRD_LOOPBACK)
+    {   /*ci_log("Only interested in ethernet interfaces");*/
+	return 0;
+    }
 
     attr = (struct rtattr *)IFLA_RTA(ifinfomsg);
     add = (nlhdr->nlmsg_type == RTM_NEWLINK);
@@ -2729,8 +2735,7 @@ cicpos_handle_llap_msg(cicpos_parse_state_t *session, struct nlmsghdr *nlhdr)
 		break;
 
 	    case IFLA_ADDRESS:
-		if (ifinfomsg->ifi_type == ARPHRD_ETHER)
-			CI_MAC_ADDR_SET(&mac, RTA_DATA(attr));
+		CI_MAC_ADDR_SET(&mac, RTA_DATA(attr));
 		break;
 
 	    case IFLA_IFNAME:

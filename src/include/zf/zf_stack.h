@@ -1,7 +1,7 @@
 /*
 ** This file is part of Solarflare TCPDirect.
 **
-** Copyright 2015-2017  Solarflare Communications Inc.
+** Copyright 2015-2016  Solarflare Communications Inc.
 **                       7505 Irvine Center Drive, Irvine, CA 92618, USA
 **
 ** Proprietary and confidential.  All rights reserved.

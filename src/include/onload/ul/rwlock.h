@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -261,14 +261,12 @@ ci_inline void oo_rwlock_lock_write(oo_rwlock* l)
    */
   ci_mb();
 
-  if( l->val != OO_RWLOCK_VAL_WRITER ) {
-    rwlock_clear_readers(l);
+  rwlock_clear_readers(l);
 
-    /* We have a guarantee that there will be no new readers.  Let's wait for
-     * existing readers to exit. */
-    while( l->val != OO_RWLOCK_VAL_WRITER )
-      pthread_cond_wait(&l->cond, &l->mutex);
-  }
+  /* We have a guarantee that there will be no new readers.  Let's wait for
+   * existing readers to exit. */
+  while( l->val != OO_RWLOCK_VAL_WRITER )
+    pthread_cond_wait(&l->cond, &l->mutex);
   CI_TRY( pthread_mutex_unlock(&l->mutex) );
 
   /* When all readers have gone, we can just take the write lock,

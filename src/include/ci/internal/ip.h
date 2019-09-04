@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -1563,7 +1563,6 @@ extern void ci_tcp_timeout_delack(ci_netif* netif, ci_tcp_state* ts) CI_HF;
 extern void ci_tcp_timeout_rto(ci_netif* netif, ci_tcp_state* ts) CI_HF;
 extern void ci_tcp_timeout_cork(ci_netif* netif, ci_tcp_state* ts) CI_HF;
 extern void ci_tcp_stop_timers(ci_netif* netif, ci_tcp_state* ts) CI_HF;
-extern void ci_tcp_send_corked_packets(ci_netif* netif, ci_tcp_state* ts) CI_HF;
 #if CI_CFG_TAIL_DROP_PROBE
 extern void ci_tcp_timeout_taildrop(ci_netif *netif, ci_tcp_state *ts) CI_HF;
 #endif
@@ -3068,7 +3067,7 @@ ci_inline ci_ip_pkt_fmt* ci_udp_recv_q_get(ci_netif* ni,
      * this pkt is already consumed, the next one must be OK to
      * receive.
      */
-    q->extract = OO_ACCESS_ONCE(pkt->udp_rx_next);
+    q->extract = pkt->udp_rx_next;
     pkt = PKT_CHK_NNL(ni, q->extract);
     ci_assert( !(pkt->rx_flags & CI_PKT_RX_FLAG_RECV_Q_CONSUMED) );
   }
@@ -3085,10 +3084,6 @@ ci_inline void ci_udp_recv_q_deliver(ci_netif* ni, ci_udp_recv_q* q,
 ci_inline ci_ip_pkt_fmt* ci_udp_recv_q_next(ci_netif* ni,
                                             ci_ip_pkt_fmt* pkt)
 {
-  /* This function is called without the stack lock, and so we had better be
-   * certain that the packet is not going to be reaped under our feet. */
-  ci_assert_nflags(pkt->rx_flags, CI_PKT_RX_FLAG_RECV_Q_CONSUMED);
-
   if( OO_PP_IS_NULL(pkt->udp_rx_next) )
     return NULL;
   return PKT_CHK_NNL(ni, pkt->udp_rx_next);
@@ -4134,7 +4129,7 @@ ci_inline int oo_tcpdump_free_pkts_4write(ci_netif *ni)
 ci_inline void oo_tcpdump_dump_pkt(ci_netif *ni, ci_ip_pkt_fmt *pkt)
 {
   if( !oo_tcpdump_free_pkts_4write(ni) ||
-      (pkt->flags & CI_PKT_FLAG_MSG_WARM) )
+      (ni->flags & CI_NETIF_FLAG_MSG_WARM) )
     return;
 
   ci_assert_equal(ni->state->dump_queue[ni->state->dump_write_i %

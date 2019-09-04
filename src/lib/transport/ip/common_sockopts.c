@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -1329,10 +1329,8 @@ int ci_setsockopt_os_fail_ignore(ci_netif* ni, ci_sock_cmn* s, int err,
 
 /* This function is the common handler for SOL_SOCKET level options that do
  * not require the stack lock to be held.  It is safe to call this function
- * with the lock held though, and this is done in both the TCP and UDP case.
- * In the TCP case this is because all options on a TCP socket must be set
- * with the stack lock held.  In the UDP case we do so because of lock
- * ordering requirements.
+ * with the lock held though, and this is done in the TCP case, as all options
+ * on a TCP socket must be set with the stack lock held.
  */
 int ci_set_sol_socket_nolock(ci_netif* ni, ci_sock_cmn* s, int optname,
 			     const void* optval, socklen_t optlen)

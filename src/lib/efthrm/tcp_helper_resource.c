@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -1797,7 +1797,7 @@ allocate_netif_resources(ci_resource_onload_alloc_t* alloc,
    */
   if( NI_OPTS(ni).pio ) {
     pio_bufs_ofs = sz;
-    sz += 4096 * oo_stack_intf_max(ni);
+    sz += 2048 * oo_stack_intf_max(ni);
   }
 #endif
 
@@ -2823,12 +2823,15 @@ int tcp_helper_rm_alloc(ci_resource_onload_alloc_t* alloc,
   ci_dllink_mark_free(&rs->all_stacks_link);
   ci_irqlock_unlock(&THR_TABLE.lock, &lock_flags);
 
-  /* We might have been reset, so provide a lock for potential waiter.  We
-   * don't want to (and can't safely) run any unlock hooks.  Ignoring them is
-   * safe since the only other possible user of this stack is reset work, which
-   * doesn't require that we handle any of the flags. */
-  ef_eplock_clear_flags(&ni->state->lock, CI_EPLOCK_NETIF_UNLOCK_FLAGS);
-  efab_tcp_helper_netif_unlock(rs, 0);
+  /* We might have been reset.
+   * Provide a lock for potential waiter.
+   * No one else could be accessing this stack!
+   * Pretend to be in dl context to avoid proactive packet buffer
+   * allocation. */
+  ni->flags |= CI_NETIF_FLAG_IN_DL_CONTEXT;
+  /* We don't need more packets: */
+  ef_eplock_clear_flags(&ni->state->lock, CI_EPLOCK_NETIF_NEED_PKT_SET);
+  efab_tcp_helper_netif_unlock(rs, 1);
   flush_workqueue(rs->reset_wq);
   efab_tcp_helper_netif_try_lock(rs, 0);
 

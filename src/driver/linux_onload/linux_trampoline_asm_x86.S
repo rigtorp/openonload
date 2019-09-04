@@ -31,9 +31,8 @@ efab_linux_trampoline_close:
 
 #elif defined(__x86_64__)
 
-/* We have at least the return address on the stack before pt_regs, so pt_regs
- * is no earlier than 8(%rsp).  There might be other stuff in the way, too,
- * but it's up to the handler in C to sort that out. */
+/* we have return address on the stack before pt_regs, so
+ * pt_regs is expected on 8(%rsp) */
 #define RSP_TP_PT_REGS_OFFSET_BASE 8
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,0)
@@ -50,9 +49,7 @@ efab_linux_trampoline_close:
 	.type	efab_linux_trampoline_close,@function
 	.align 16
 efab_linux_trampoline_close:
-	/* 2nd arg to our handler = earliest possible location of
-	 * struct pt_regs. */
-	leaq	RSP_TP_PT_REGS_OFFSET(%rsp),%rsi
+	leaq	RSP_TP_PT_REGS_OFFSET(%rsp),%rsi	/* 2nd arg to our handler = struct pt_regs */
 	mov	(%rsp),%rdx     /* 3rd arg is return address */
 	jmp	efab_linux_trampoline_handler_close64
 .Lfe1:

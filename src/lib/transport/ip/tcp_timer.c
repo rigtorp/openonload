@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -489,34 +489,19 @@ static void ci_tcp_drop_due_to_rto(ci_netif *ni, ci_tcp_state *ts,
 
 }
 
-
-void ci_tcp_send_corked_packets(ci_netif* netif, ci_tcp_state* ts)
-{
-  /* If the send queue is more than 1 MSS pending, that suggests
-   * there is another reason for it not being sent, so do nothing in
-   * that case.
-   */
-  if( ci_ip_queue_not_empty(&ts->send) &&
-      SEQ_SUB(tcp_enq_nxt(ts), tcp_snd_nxt(ts)) < tcp_eff_mss(ts) ) {
-    /* Remove CI_PKT_FLAG_TX_MORE flag to ensure it gets sent now */
-    oo_pkt_p pp = ts->send.head;
-    ci_ip_pkt_fmt* pkt;
-    do {
-      pkt = PKT_CHK(netif, pp);
-      pp = pkt->next;
-      pkt->flags &=~ CI_PKT_FLAG_TX_MORE;
-    } while( OO_PP_NOT_NULL(pp) );
-    TX_PKT_TCP(pkt)->tcp_flags |= CI_TCP_FLAG_PSH;
-    ci_tcp_tx_advance(ts, netif);
-  }
-}
-
 /* Called as TCP_CORK timeout */
 void ci_tcp_timeout_cork(ci_netif* netif, ci_tcp_state* ts)
 {
-  ci_tcp_send_corked_packets(netif, ts);
+  /* We do not stop the timer when a packet is send (just because we do not
+   * know when we should do it).  So, let's check if we have only one packet
+   * in sendq.  Well, possibly it is not our packet, but there is no harm
+   * here. */
+  if( ts->send.num == 1 ) {
+    TX_PKT_TCP(PKT_CHK(netif, ts->send.head))->tcp_flags |= CI_TCP_FLAG_PSH;
+    ci_tcp_tx_advance(ts, netif);
+  }
+  return;
 }
-
 
 /* Called as action on a retransmission timer timeout (RTO) */
 void ci_tcp_timeout_rto(ci_netif* netif, ci_tcp_state* ts)

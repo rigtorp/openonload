@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -139,16 +139,10 @@ static struct page* cicp_vm_op_nopage(struct vm_area_struct* vma,
   return pg;
 }
 #ifndef EFRM_VMA_HAS_NOPAGE
-static int cicp_vm_op_fault(
-#ifndef EFRM_HAVE_NEW_FAULT
-                            struct vm_area_struct *vma,
-#endif
-                            struct vm_fault *vmf)
+static int cicp_vm_op_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
-#ifdef EFRM_HAVE_NEW_FAULT
-  struct vm_area_struct *vma = vmf->vma;
-#endif
-  vmf->page = cicp_vm_op_nopage(vma, VM_FAULT_ADDRESS(vmf), NULL);
+  vmf->page = cicp_vm_op_nopage(vma, (unsigned long)vmf->virtual_address,
+                                NULL);
   return ( vmf->page == NULL ) ? VM_FAULT_SIGBUS : 0;
 }
 #endif

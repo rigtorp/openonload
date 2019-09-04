@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -558,8 +558,7 @@ static int oo_epoll2_action(struct oo_epoll_private *priv,
         memcpy(&current->saved_sigmask, &sigsaved, sizeof(sigsaved));
 /* Must check for both symbols: see def'n of EFRM_HAVE_SET_RESTORE_SIGMASK. */
 #if defined(HAVE_SET_RESTORE_SIGMASK) || \
-    defined(EFRM_HAVE_SET_RESTORE_SIGMASK) || \
-    defined(EFRM_HAVE_SET_RESTORE_SIGMASK1)
+    defined(EFRM_HAVE_SET_RESTORE_SIGMASK)
         set_restore_sigmask();
 #else
         set_thread_flag(TIF_RESTORE_SIGMASK);
@@ -682,16 +681,12 @@ static int oo_epoll1_mmap(struct oo_epoll1_private* priv,
     goto fail1;
   }
   priv->os_file = fget(priv->sh->epfd);
-  if( priv->os_file == NULL ) {
-    rc = -EINVAL;
-    goto fail2;
-  }
 
   /* Map memory to user */
   if( remap_pfn_range(vma, vma->vm_start, page_to_pfn(priv->page),
                       PAGE_SIZE, vma->vm_page_prot) < 0) {
     rc = -EIO;
-    goto fail3;
+    goto fail2;
   }
 
   /* Install callback */
@@ -700,9 +695,8 @@ static int oo_epoll1_mmap(struct oo_epoll1_private* priv,
 
   return 0;
 
-fail3:
-  fput(priv->os_file);
 fail2:
+  fput(priv->os_file);
   efab_linux_sys_close(priv->sh->epfd);
 fail1:
   priv->sh = NULL;
@@ -919,19 +913,11 @@ static int oo_epoll1_block_on(struct file* home_filp,
 static int oo_epoll_move_fd(struct oo_epoll1_private* priv, int epoll_fd)
 {
   struct file* epoll_file = fget(epoll_fd);
-
-  /* We expect that os_file is non-NULL, but we can't rely on it because
-   * we do not trust UL.  In a "good" case, we just check that the new
-   * epoll_fd points to the same underlying os_file.  In the "bad" case we
-   * just avoid crashing; misbehaving UL should be happy with any result
-   * from this ioctl. */
   if( epoll_file != priv->os_file ) {
-    if( epoll_file != NULL )
-      fput(epoll_file);
+    fput(epoll_file);
     return -EINVAL;
   }
-  if( epoll_file != NULL )
-    fput(epoll_file);
+  fput(epoll_file);
 
   priv->sh->epfd = epoll_fd;
   return 0;
@@ -1014,8 +1000,6 @@ static long oo_epoll_fop_unlocked_ioctl(struct file* filp,
       return -EFAULT;
 
     sock_file = fget(sock_fd);
-    if( sock_file == NULL )
-      return -EINVAL;
     if( sock_file->f_op != &linux_tcp_helper_fops_udp &&
         sock_file->f_op != &linux_tcp_helper_fops_tcp ) {
       fput(sock_file);
@@ -1043,8 +1027,6 @@ static long oo_epoll_fop_unlocked_ioctl(struct file* filp,
       return -EFAULT;
 
     sock_file = fget(local_arg.sockfd);
-    if( sock_file == NULL )
-      return -EINVAL;
     if( sock_file->f_op != &linux_tcp_helper_fops_udp &&
         sock_file->f_op != &linux_tcp_helper_fops_tcp ) {
       fput(sock_file);
@@ -1113,8 +1095,7 @@ static long oo_epoll_fop_unlocked_ioctl(struct file* filp,
         memcpy(&current->saved_sigmask, &sigsaved, sizeof(sigsaved));
 /* Must check for both symbols: see def'n of EFRM_HAVE_SET_RESTORE_SIGMASK. */
 #if defined(HAVE_SET_RESTORE_SIGMASK) || \
-    defined(EFRM_HAVE_SET_RESTORE_SIGMASK) || \
-    defined(EFRM_HAVE_SET_RESTORE_SIGMASK1)
+    defined(EFRM_HAVE_SET_RESTORE_SIGMASK)
         set_restore_sigmask();
 #else
         set_thread_flag(TIF_RESTORE_SIGMASK);

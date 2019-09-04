@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -1736,6 +1736,11 @@ struct efx_napi_dummy {};
 #define napi_struct efx_napi_dummy
 #endif
 
+#ifdef EFX_NEED_NAPI_HASH
+static inline void napi_hash_add(struct napi_struct *napi) {}
+static inline void napi_hash_del(struct napi_struct *napi) {}
+#endif
+
 #ifdef EFX_HAVE_RXHASH_SUPPORT
 #ifdef EFX_NEED_SKB_SET_HASH
 enum pkt_hash_types {
@@ -2122,26 +2127,6 @@ unsigned int cpumask_local_spread(unsigned int i, int node);
 				     (_work));				\
 			init_timer(&(_work)->timer);                    \
 		} while (0)
-#endif
-
-#ifdef EFX_NEED_WQ_SYSFS
-	#define WQ_SYSFS	0
-#endif
-#ifndef WQ_MEM_RECLAIM
-	#define WQ_MEM_RECLAIM	0
-#endif
-
-#ifdef EFX_HAVE_ALLOC_WORKQUEUE
-#ifndef EFX_HAVE_NEW_ALLOC_WORKQUEUE
-	#define efx_alloc_workqueue(_fmt, _flags, _max, _name)	\
-		alloc_workqueue(_name, _flags, _max)
-#else
-	#define efx_alloc_workqueue(_fmt, _flags, _max, _name)	\
-		alloc_workqueue(_fmt, _flags, _max, _name)
-#endif
-#else
-	#define efx_alloc_workqueue(_fmt, _flags, _max, _name)	\
-		create_singlethread_workqueue(_name)
 #endif
 
 #if defined(EFX_HAVE_OLD_NAPI)
@@ -2617,6 +2602,17 @@ static inline int efx_on_each_cpu(void (*func) (void *info), void *info, int wai
 #define remap_pfn_range remap_page_range
 #endif
 
+#ifdef EFX_NEED_GETNSTIMEOFDAY
+	static inline void efx_getnstimeofday(struct timespec *tv)
+	{
+		struct timeval x;
+		do_gettimeofday(&x);
+		tv->tv_sec = x.tv_sec;
+		tv->tv_nsec = x.tv_usec * NSEC_PER_USEC;
+	}
+#define getnstimeofday efx_getnstimeofday
+#endif
+
 #ifdef EFX_HAVE_PARAM_BOOL_INT
 	#define param_ops_bool efx_param_ops_bool
 	int efx_param_set_bool(const char *val, struct kernel_param *kp);
@@ -3055,99 +3051,6 @@ static inline int efx_unregister_netdevice_notifier(struct notifier_block *b)
 
 #define register_netdevice_notifier efx_register_netdevice_notifier
 #define unregister_netdevice_notifier efx_unregister_netdevice_notifier
-#endif
-
-#ifdef EFX_HAVE_NAPI_HASH_ADD
-/* napi_hash_add appeared in 3.11 and is no longer exported as of 4.10.
- *
- * Although newer versions of netif_napi_add call napi_hash_add we can still
- * call napi_hash_add here regardless, since there is a state bit to avoid
- * double adds.
- */
-static inline void efx_netif_napi_add(struct net_device *dev,
-				      struct napi_struct *napi,
-				      int (*poll)(struct napi_struct *, int),
-				      int weight)
-{
-	netif_napi_add(dev, napi, poll, weight);
-	napi_hash_add(napi);
-}
-#ifdef netif_napi_add
-/* RHEL7.3 defines netif_napi_add as _netif_napi_add for KABI compat. */
-#define _netif_napi_add efx_netif_napi_add
-#else
-#define netif_napi_add efx_netif_napi_add
-#endif
-
-/* napi_hash_del still exists as of 4.10, even though napi_hash_add has gone.
- * This is because it returns whether an RCU grace period is needed, allowing
- * drivers to coalesce them. We don't do this.
- *
- * Although newer versions of netif_napi_del() call napi_hash_del() already
- * this is safe - it uses a state bit to determine if it needs deleting.
- */
-static inline void efx_netif_napi_del(struct napi_struct *napi)
-{
-	might_sleep();
-#ifndef EFX_HAVE_NAPI_HASH_DEL_RETURN
-	napi_hash_del(napi);
-	if (1) /* Always call synchronize_net */
-#else
-	if (napi_hash_del(napi))
-#endif
-		synchronize_net();
-	netif_napi_del(napi);
-}
-#define netif_napi_del efx_netif_napi_del
-#endif
-
-#if defined(EFX_HAVE_NDO_BUSY_POLL) || defined(EFX_HAVE_NDO_EXT_BUSY_POLL)
-/* Combined define for driver-based busy poll. Later kernels (4.11+) implement
- * busy polling in the core.
- */
-#define EFX_WANT_DRIVER_BUSY_POLL
-#endif
-
-#if defined(EFX_NEED_BOOL_NAPI_COMPLETE_DONE)
-#if !defined(EFX_HAVE_OLD_NAPI)
-static inline bool efx_napi_complete_done(struct napi_struct *napi,
-					  int spent __always_unused)
-{
-	napi_complete(napi);
-	return true;
-}
-#define napi_complete_done efx_napi_complete_done
-#else
-/* Old NAPI needs the definition of efx_channel for this to work. Don't drag
- * net_driver.h for that. */
-bool napi_complete_done(struct napi_struct *napi, int spent);
-#endif
-#endif
-
-#if defined(EFX_NEED_HWMON_DEVICE_REGISTER_WITH_INFO) && !defined(__VMKLNX__)
-struct hwmon_chip_info;
-struct attribute_group;
-
-#ifdef EFX_HAVE_HWMON_CLASS_DEVICE
-#define EFX_HWMON_DEVICE_REGISTER_TYPE class_device
-#else
-#define EFX_HWMON_DEVICE_REGISTER_TYPE device
-#endif
-
-struct EFX_HWMON_DEVICE_REGISTER_TYPE *hwmon_device_register_with_info(
-	struct device *dev,
-	const char *name __always_unused,
-	void *drvdata __always_unused,
-	const struct hwmon_chip_info *info __always_unused,
-	const struct attribute_group **extra_groups __always_unused);
-#endif
-
-#if defined(EFX_HAVE_XDP) && !defined(EFX_HAVE_XDP_TRACE)
-#define trace_xdp_exception(dev, prog, act)
-#endif
-
-#if !defined(EFX_HAVE_XDP_HEAD)
-#define XDP_PACKET_HEADROOM 0
 #endif
 
 #endif /* EFX_KERNEL_COMPAT_H */

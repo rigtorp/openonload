@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -88,7 +88,6 @@ static int oo_bufpage_huge_alloc(struct oo_buffer_pages *p, int *flags)
   int rc;
   int restore_creds = 0;
 #ifdef current_cred
-  const struct cred *orig_creds = NULL; /* placate compiler */
   struct cred *creds;
 #endif
 
@@ -103,7 +102,7 @@ static int oo_bufpage_huge_alloc(struct oo_buffer_pages *p, int *flags)
     creds = prepare_creds();
     if( creds != NULL ) {
       creds->cap_effective.cap[0] |= 1 << CAP_IPC_LOCK;
-      orig_creds = override_creds(creds);
+      commit_creds(creds);
       restore_creds = 1;
     }
   }
@@ -195,8 +194,8 @@ static int oo_bufpage_huge_alloc(struct oo_buffer_pages *p, int *flags)
   }
 
   down_read(&current->mm->mmap_sem);
-  rc = get_user_pages((unsigned long)uaddr, 1, FOLL_WRITE, &(p->pages[0]),
-                      NULL);
+  rc = get_user_pages((unsigned long)uaddr, 1,
+                      1/*write*/, 0/*force*/, &(p->pages[0]), NULL);
   up_read(&current->mm->mmap_sem);
   if (rc < 0)
     goto fail2;
@@ -217,8 +216,11 @@ fail3:
 out:
   if (restore_creds) {
 #ifdef current_cred
-    ci_assert(orig_creds);
-    revert_creds(orig_creds);
+    creds = prepare_creds();
+    if( creds != NULL ) {
+      creds->cap_effective.cap[0] &= ~(1 << CAP_IPC_LOCK);
+      commit_creds(creds);
+    }
 #elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
     kernel_cap_t eff = current->cap_effective;
     cap2int(eff) &= ~(1 << CAP_IPC_LOCK);

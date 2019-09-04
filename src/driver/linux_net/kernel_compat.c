@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -38,9 +38,6 @@
 #include <asm/uaccess.h>
 #ifdef EFX_HAVE_LINUX_EXPORT_H
 #include <linux/export.h>
-#endif
-#if defined(EFX_NEED_HWMON_DEVICE_REGISTER_WITH_INFO) && !defined(__VMKLNX__)
-#include <linux/hwmon.h>
 #endif
 
 /*
@@ -761,24 +758,3 @@ struct dentry *d_hash_and_lookup(struct dentry *dir, struct qstr *name)
 	return d_lookup(dir, name);
 }
 #endif
-
-#if defined(EFX_NEED_BOOL_NAPI_COMPLETE_DONE) && defined(EFX_HAVE_OLD_NAPI)
-bool napi_complete_done(struct napi_struct *napi, int spent __always_unused)
-{
-	napi_complete(napi);
-	return true;
-}
-#endif
-
-#if defined(EFX_NEED_HWMON_DEVICE_REGISTER_WITH_INFO) && !defined(__VMKLNX__)
-struct EFX_HWMON_DEVICE_REGISTER_TYPE *hwmon_device_register_with_info(
-	struct device *dev,
-	const char *name __always_unused,
-	void *drvdata __always_unused,
-	const struct hwmon_chip_info *info __always_unused,
-	const struct attribute_group **extra_groups __always_unused)
-{
-	return hwmon_device_register(dev);
-}
-#endif
-

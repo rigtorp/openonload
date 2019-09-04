@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -82,7 +82,7 @@
  *
  **************************************************************************/
 
-#define EFX_DRIVER_VERSION	"4.10.7.1001"
+#define EFX_DRIVER_VERSION	"4.10.0.1011"
 
 #ifdef DEBUG
 #define EFX_BUG_ON_PARANOID(x) BUG_ON(x)
@@ -531,6 +531,7 @@ struct efx_rx_queue {
 	unsigned int ptr_mask;
 	bool refill_enabled;
 	bool flush_pending;
+
 	unsigned int added_count;
 	unsigned int notified_count;
 	unsigned int removed_count;
@@ -686,6 +687,14 @@ struct efx_sarfs_state {
 };
 #endif
 
+#ifdef EFX_USE_IRQ_NOTIFIERS
+struct efx_irq_affinity_notify {
+	struct irq_affinity_notify notifier;
+	struct efx_nic *efx;
+	int channel;
+};
+#endif
+
 #if defined(EFX_NOT_UPSTREAM) && defined(EFX_WITH_VMWARE_NETQ)
 /* VMware netqueue use flags */
 #define NETQ_USE_DEFAULT	(0U)
@@ -714,7 +723,8 @@ struct efx_sarfs_state {
  * @irq_moderation_us: IRQ moderation value (in microseconds)
  * @napi_dev: Net device used with NAPI
  * @napi_str: NAPI control structure
- * @xdp_prog: Current XDP programme for this queue.
+ * @state: state for NAPI vs busy polling
+ * @state_lock: lock protecting @state
  * @eventq: Event queue buffer
  * @eventq_mask: Event queue pointer mask
  * @eventq_read_ptr: Event queue read pointer
@@ -735,7 +745,6 @@ struct efx_sarfs_state {
  *	lack of descriptors
  * @n_rx_merge_events: Number of RX merged completion events
  * @n_rx_merge_packets: Number of RX packets completed by merged events
- * @n_rx_xdp_drops: Count of RX packets dropped due to XDP
  * @rx_pkt_n_frags: Number of fragments in next packet to be delivered by
  *	__efx_rx_packet(), or zero if there is none
  * @rx_pkt_index: Ring index of first buffer for next packet to be delivered
@@ -762,13 +771,8 @@ struct efx_channel {
 	unsigned int irq_moderation_us;
 	struct net_device *napi_dev;
 	struct napi_struct napi_str;
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
-	struct bpf_prog __rcu *xdp_prog;
-#endif
-#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 #ifdef CONFIG_NET_RX_BUSY_POLL
 	unsigned long busy_poll_state;
-#endif
 #endif
 	struct efx_special_buffer eventq;
 	unsigned int eventq_mask;
@@ -812,9 +816,6 @@ struct efx_channel {
 	unsigned int n_rx_nodesc_trunc;
 	unsigned int n_rx_merge_events;
 	unsigned int n_rx_merge_packets;
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
-	unsigned int n_rx_xdp_drops;
-#endif
 
 	unsigned int rx_pkt_n_frags;
 	unsigned int rx_pkt_index;
@@ -839,16 +840,8 @@ struct efx_channel {
 	cpumask_var_t available_cpus;
 #endif
 	int irq_mem_node;
-
-#ifdef EFX_USE_IRQ_NOTIFIERS
-	struct {
-		struct irq_affinity_notify notifier;
-		struct completion complete;
-	} irq_affinity;
-#endif
 };
 
-#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 #ifdef CONFIG_NET_RX_BUSY_POLL
 enum efx_channel_busy_poll_state {
 	EFX_CHANNEL_STATE_IDLE = 0,
@@ -972,7 +965,6 @@ static inline bool efx_channel_disable(struct efx_channel *channel)
 	return true;
 }
 #endif /* CONFIG_NET_RX_BUSY_POLL */
-#endif /* EFX_WANT_DRIVER_BUSY_POLL */
 
 /**
  * struct efx_msi_context - Context for each MSI
@@ -1007,7 +999,7 @@ struct efx_channel_type {
 	int (*pre_probe)(struct efx_channel *);
 	void (*post_remove)(struct efx_channel *);
 	void (*get_name)(struct efx_channel *, char *buf, size_t len);
-	struct efx_channel *(*copy)(struct efx_channel *);
+	struct efx_channel *(*copy)(const struct efx_channel *);
 	bool (*receive_skb)(struct efx_channel *, struct sk_buff *);
 	bool keep_eventq;
 };

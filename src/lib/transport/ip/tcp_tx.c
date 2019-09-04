@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -65,8 +65,6 @@ ci_inline void ci_ip_tcp_list_to_dmaq(ci_netif* ni, ci_tcp_state* ts,
       pkt->flags |= CI_PKT_FLAG_TX_TIMESTAMPED;
     ci_ip_set_mac_and_port(ni, &ts->s.pkt, pkt);
     ci_netif_pkt_hold(ni, pkt);
-    if(CI_UNLIKELY( ts->tcpflags & CI_TCPT_FLAG_MSG_WARM ))
-      pkt->flags |= CI_PKT_FLAG_MSG_WARM;
     __ci_netif_dmaq_insert_prep_pkt(ni, pkt);
     pkt->netif.tx.dmaq_next = pkt->next;
     ++n;
@@ -84,7 +82,7 @@ ci_inline void ci_ip_tcp_list_to_dmaq(ci_netif* ni, ci_tcp_state* ts,
       (ni->state->nic[tail_pkt->intf_i].oo_vi_flags & OO_VI_FLAGS_PIO_EN) ) {
     if( tail_pkt->pay_len <= NI_OPTS(ni).pio_thresh ) {
       if( (offset = ci_pio_buddy_alloc(ni, buddy, order)) >= 0 ) {
-        if(CI_UNLIKELY( ts->tcpflags & CI_TCPT_FLAG_MSG_WARM )) {
+        if(CI_UNLIKELY( ni->flags & CI_NETIF_FLAG_MSG_WARM )) {
           __ci_netif_dmaq_insert_prep_pkt_warm_undo(ni, tail_pkt);
           ci_pio_buddy_free(ni, &ni->state->nic[tail_pkt->intf_i].pio_buddy,
                             offset, order);
@@ -115,7 +113,7 @@ ci_inline void ci_ip_tcp_list_to_dmaq(ci_netif* ni, ci_tcp_state* ts,
   }
 #endif
 
-  if(CI_LIKELY( ! (ts->tcpflags & CI_TCPT_FLAG_MSG_WARM) )) {
+  if(CI_LIKELY( ! (ni->flags & CI_NETIF_FLAG_MSG_WARM) )) {
     __oo_pktq_put_list(ni, dmaq, head_id, tail_pkt, n, netif.tx.dmaq_next);
     ci_netif_dmaq_shove2(ni, tail_pkt->intf_i);
   }
@@ -148,8 +146,6 @@ static void ci_ip_tcp_list_to_dmaq_striping(ci_netif* ni, ci_tcp_state* ts,
     ci_ip_set_mac_and_port(ni, &ts->s.pkt, pkt);
     pp = pkt->next;
     ci_netif_pkt_hold(ni, pkt);
-    if(CI_UNLIKELY( ts->tcpflags & CI_TCPT_FLAG_MSG_WARM ))
-      pkt->flags |= CI_PKT_FLAG_MSG_WARM;
     __ci_netif_dmaq_insert_prep_pkt(ni, pkt);
     pkt->netif.tx.dmaq_next = pkt->next;
     ++n;
@@ -245,7 +241,7 @@ static void ci_ip_send_tcp_list(ci_netif* ni, ci_tcp_state* ts,
 fast:
 #if CI_CFG_PORT_STRIPING
     if( ts->tcpflags & CI_TCPT_FLAG_STRIPE ) {
-      ci_assert(! (ts->tcpflags & CI_TCPT_FLAG_MSG_WARM));
+      ci_assert(! (ni->flags & CI_NETIF_FLAG_MSG_WARM));
       ci_ip_tcp_list_to_dmaq_striping(ni, ts, head_id, tail_pkt);
     }
     else
@@ -253,7 +249,7 @@ fast:
       ci_ip_tcp_list_to_dmaq(ni, ts, head_id, tail_pkt);
   }
   else {
-    if(CI_UNLIKELY( ts->tcpflags & CI_TCPT_FLAG_MSG_WARM )) {
+    if(CI_UNLIKELY( ni->flags & CI_NETIF_FLAG_MSG_WARM )) {
       cicp_user_retrieve(ni, &ts->s.pkt, &ts->s.cp);
       return;
     }
@@ -1201,7 +1197,7 @@ void ci_tcp_tx_advance(ci_tcp_state* ts, ci_netif* ni)
     tcp = TX_PKT_TCP(pkt);
     paylen = PKT_TCP_TX_SEQ_SPACE(pkt);
     if(CI_UNLIKELY( paylen > tcp_eff_mss(ts) )) {
-      ci_assert(! (ts->tcpflags & CI_TCPT_FLAG_MSG_WARM));
+      ci_assert(! (ni->flags & CI_NETIF_FLAG_MSG_WARM));
       ci_tcp_tx_split(ni, ts, sendq, pkt, tcp_eff_mss(ts), 1);
       /* If the split fails, tough luck; we push the packet out as-is
        * anyway.  We'll have another go at splitting it if we have to
@@ -1246,7 +1242,7 @@ void ci_tcp_tx_advance(ci_tcp_state* ts, ci_netif* ni)
         (PKT_TCP_TX_SEQ_SPACE(pkt) < tcp_eff_mss(ts)) &&
         (pkt->n_buffers < CI_IP_PKT_SEGMENTS_MAX)) {
 
-      ci_assert(! (ts->tcpflags & CI_TCPT_FLAG_MSG_WARM));
+      ci_assert(! (ni->flags & CI_NETIF_FLAG_MSG_WARM));
 
         /* We do not want to send packet now, but we'd like to do it
          * later.  If user does send more data, he'll push it forward.
@@ -1337,7 +1333,7 @@ void ci_tcp_tx_advance(ci_tcp_state* ts, ci_netif* ni)
     id = pkt->next;
   }
 
-  if( ts->tcpflags & CI_TCPT_FLAG_MSG_WARM )
+  if( ni->flags & CI_NETIF_FLAG_MSG_WARM )
     ci_assert(sent_num == 1);
 
   if( sent_num != 0 ) {
@@ -1347,7 +1343,7 @@ void ci_tcp_tx_advance(ci_tcp_state* ts, ci_netif* ni)
 
     if( ts->s.pkt.flags & CI_IP_CACHE_IS_LOCALROUTE ) {
       oo_pkt_p head = sendq->head;
-      ci_assert(! (ts->tcpflags & CI_TCPT_FLAG_MSG_WARM ));
+      ci_assert(! (ni->flags & CI_NETIF_FLAG_MSG_WARM ));
       /* No retransmit queue in case of local connection:
        * just send them to peer and clear out from sendq. */
       sendq->head = last_pkt->next;
@@ -1379,7 +1375,7 @@ void ci_tcp_tx_advance(ci_tcp_state* ts, ci_netif* ni)
     }
     else {
       ci_ip_send_tcp_list(ni, ts, sendq->head, last_pkt);
-      if(CI_UNLIKELY( ts->tcpflags & CI_TCPT_FLAG_MSG_WARM ))
+      if(CI_UNLIKELY( ni->flags & CI_NETIF_FLAG_MSG_WARM ))
         /* This function updated tcp_snd_nxt, burst_window,
          * ts->stats.tx_stop_app.  We made copies of tcp_snd_nxt and
          * burst_window in tcp_sendmsg().  We will restore these

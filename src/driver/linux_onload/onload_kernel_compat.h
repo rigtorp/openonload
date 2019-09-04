@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -17,10 +17,8 @@
 #define __ONLOAD_KERNEL_COMPAT_H__
 
 #include <driver/linux_net/kernel_compat.h>
-#include <driver/linux_net/autocompat.h>
 #include <driver/linux_affinity/autocompat.h>
 #include <linux/file.h>
-#include <linux/signal.h>
 
 #ifndef current_fsuid
 #define current_fsuid() current->fsuid
@@ -33,10 +31,6 @@
 #define kmem_cache kmem_cache_s
 #endif
 
-#if defined(EFRM_ALLOC_FILE_TAKES_STRUCT_PATH) || \
-  defined(EFRM_ALLOC_FILE_TAKES_CONST_STRUCT_PATH)
-#define EFRM_HAVE_STRUCT_PATH
-#endif
 
 /* >=2.6.24 has sig_kernel_* macros in the header;
  * 2.6.18 has them in .c */

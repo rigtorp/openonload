@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -206,9 +206,6 @@ task_nsproxy_done(struct task_struct *tsk)
   rcu_read_unlock();
 }
 #else
-#ifdef EFRM_HAVE_SCHED_TASK_H
-#include <linux/sched/task.h>
-#endif
 static inline struct nsproxy *
 task_nsproxy_start(struct task_struct *tsk)
 {

@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -353,7 +353,6 @@ struct ci_ip_pkt_fmt_s {
 #define CI_PKT_FLAG_NONB_POOL      0x0100  /* allocated from nonb-pool   */
 #define CI_PKT_FLAG_RX             0x0200  /* pkt is on RX path          */
 #define CI_PKT_FLAG_TX_TIMESTAMPED 0x0400  /* pkt with a TX timestamp    */
-#define CI_PKT_FLAG_MSG_WARM       0x0800  /* pkt with a TX timestamp    */
 
 #define CI_PKT_FLAG_TX_MASK_ALLOWED                                     \
     (CI_PKT_FLAG_TX_MORE | CI_PKT_FLAG_TX_PSH | CI_PKT_FLAG_NONB_POOL)
@@ -1094,9 +1093,8 @@ struct ci_netif_state_s {
 
 
 struct oo_timesync {
-  struct oo_timespec mono_clock;    /* recent monotonic system clock */
-  struct oo_timespec wall_clock;    /* recent wall system clock */
-  ci_uint64 clock_made;             /* time (frc) [mono,wall]clock was stored */
+  struct oo_timespec clock;         /* a recent value from system clock */
+  ci_uint64 clock_made;             /* time (frc) clock was stored */
   ci_uint64 smoothed_ticks;         /* frc ticks during smoothed_ns time */
   ci_uint64 smoothed_ns;            /* ns to count smoothed_ticks */
   ci_uint64 update_jiffies;         /* time in jiffies of next update */
@@ -1971,9 +1969,6 @@ struct ci_tcp_state_s {
 #define CI_TCPT_FLAG_FIN_RECEIVED       0x4000
   /* peer have graciously closed this connection by sending FIN */
 #define CI_TCPT_FLAG_ACTIVE_WILD        0x8000  /* shares active wild */
-
-  /* this socket in in send(MSG_WARM) just now */
-#define CI_TCPT_FLAG_MSG_WARM           0x10000
 
   /* flags advertised on SYN */
 # define CI_TCPT_SYN_FLAGS \

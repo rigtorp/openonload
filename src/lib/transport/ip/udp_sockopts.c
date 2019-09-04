@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -577,11 +577,6 @@ int ci_udp_setsockopt(citp_socket* ep, ci_fd_t fd, int level,
   ci_fd_t os_sock;
   int rc;
 
-  /* We need to grab the stack lock before getting the os_sock fd, which
-   * holds the dup2 lock until released.
-   */
-  ci_netif_lock_id(ep->netif, SC_SP(ep->s));
-
   /* Keep the OS socket in sync so we can move freely between efab & OS fds
   ** on a per-call basis if necessary. */
   os_sock = ci_get_os_sock_fd(fd);
@@ -599,10 +594,12 @@ int ci_udp_setsockopt(citp_socket* ep, ci_fd_t fd, int level,
     if( rc <= 0 )  goto out;
   }
 
+  /* Otherwise we need to grab the netif lock. */
+  ci_netif_lock_id(ep->netif, SC_SP(ep->s));
   rc = ci_udp_setsockopt_lk(ep, fd, os_sock, level, optname, optval, optlen);
+  ci_netif_unlock(ep->netif);
  out:
   ci_rel_os_sock_fd(os_sock);
-  ci_netif_unlock(ep->netif);
   return rc;
 }
 

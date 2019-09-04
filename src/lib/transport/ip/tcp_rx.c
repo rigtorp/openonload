@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -1071,8 +1071,7 @@ static void ci_tcp_rx_free_acked_bufs(ci_netif* netif, ci_tcp_state* ts,
 
   if( ci_ip_queue_is_empty(rtq) ) {
     ci_assert(ts->snd_delegated);
-    ci_assert(SEQ_GE(tcp_snd_nxt(ts) + ts->snd_delegated, rxp->ack));
-    goto done;
+    return;
   }
 
   while( 1 ) {
@@ -1119,9 +1118,8 @@ static void ci_tcp_rx_free_acked_bufs(ci_netif* netif, ci_tcp_state* ts,
     ci_tcp_wake(netif, ts, CI_SB_FLAG_WAKE_RX);
   }
 
- done:
   ci_assert(!ci_ip_queue_is_empty(rtq) || SEQ_EQ(rxp->ack, tcp_snd_nxt(ts)) ||
-            ts->snd_delegated != 0);
+            ts-> snd_delegated != 0);
   tcp_snd_una(ts) = rxp->ack;
 
   /* Wake up TX if necessary */

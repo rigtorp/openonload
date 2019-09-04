@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -1014,8 +1014,7 @@ static int efrm_pd_dma_map_bt(struct efrm_pd *pd, int n_pages, int nic_order,
 	}
 
 	if (rc < 0) {
-		EFRM_ERR_LIMITED
-			 ("%s: ERROR: buffer table entry allocation failed "
+		EFRM_ERR("%s: ERROR: buffer table entry allocation failed "
 			 "(%d pages nic_order %d) rc=%d",
 			 __FUNCTION__, n_pages, nic_order, rc);
 		return rc;

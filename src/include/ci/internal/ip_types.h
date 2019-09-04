@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -172,6 +172,8 @@ struct ci_netif_s {
   /* This field must be protected by the netif lock.
    */
   unsigned             flags;
+  /* Sending ONLOAD_MSG_WARM */
+# define CI_NETIF_FLAG_MSG_WARM          0x1
   /* Set to request allocation of scalable filters at stack creation
    * This flag is not stored in netif state.  It is passed to
    * tcp_helper_resource_rm_alloc_proxy function through ioctl.

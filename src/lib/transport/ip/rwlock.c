@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -122,11 +122,6 @@ void rwlock_clear_readers(oo_rwlock *l)
     if( ~flags & OO_RWLOCK_KEY_READING_NOW )
       rwlock_not_reading(p);
   }
-
-  /* Wake up any writers if we've purged all readers, so they can make
-   * some progress toward taking the real write lock. */
-  if( l->val == OO_RWLOCK_VAL_WRITER )
-    pthread_cond_broadcast(&l->cond);
 }
 
 /* Decrements the number of writers and wakes up readers if necessary.

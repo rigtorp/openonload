@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -2237,8 +2237,8 @@ static int efx_ef10_rx_defer_ring_rx_doorbell(struct efx_rx_queue *rx_queue)
 	memcpy(MCDI_PTR(inbuf, DRIVER_EVENT_IN_DATA), &event.u64[0],
 	       sizeof(efx_qword_t));
 
-	return efx_mcdi_rpc_quiet(channel->efx, MC_CMD_DRIVER_EVENT,
-				  inbuf, sizeof(inbuf), NULL, 0, &outlen);
+	return efx_mcdi_rpc(channel->efx, MC_CMD_DRIVER_EVENT,
+			    inbuf, sizeof(inbuf), NULL, 0, &outlen);
 }
 #endif
 
@@ -2272,18 +2272,13 @@ static void efx_ef10_monitor(struct efx_nic *efx)
 	if (EFX_WORKAROUND_59975(efx)) {
 		/* re-ring the RX doorbell. Should be harmless */
 		struct efx_channel *channel;
-		int rc = 0;
 		efx_for_each_channel(channel, efx) {
 			struct efx_rx_queue *rxq;
 			efx_for_each_channel_rx_queue(rxq, channel) {
-				if (rxq->removed_count != 0)
-					continue;
-				rc = efx_ef10_rx_defer_ring_rx_doorbell(rxq);
-				if (rc != 0)
-					break;
+				if (rxq->removed_count == 0) {
+					efx_ef10_rx_defer_ring_rx_doorbell(rxq);
+				}
 			}
-			if (rc != 0)
-				break;
 		}
 	}
 #endif

@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -428,9 +428,7 @@ int efx_mcdi_mon_probe(struct efx_nic *efx)
 		goto fail;
 	}
 
-	hwmon->device = hwmon_device_register_with_info(&efx->pci_dev->dev,
-							efx->name, hwmon,
-							NULL, NULL);
+	hwmon->device = hwmon_device_register(&efx->pci_dev->dev);
 	if (IS_ERR(hwmon->device)) {
 		rc = PTR_ERR(hwmon->device);
 		goto fail;

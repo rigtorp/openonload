@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2016  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -790,13 +790,6 @@ static int efx_proxy_auth_send_response(struct proxy_admin_state *pa, u32 index,
 		if (req->result == MC_CMD_PROXY_COMPLETE_IN_AUTHORIZED)
 			mc_state->granted_privileges = req->granted_privileges;
 
-		/* Before we tell the MC we've finished we need to stop
-		 * using the request context, since we may receive another
-		 * request immediately.
-		 */
-		atomic_set(&req->state, PROXY_REQ_IDLE);
-		req = NULL;
-
 		rc = efx_mcdi_rpc(pa->efx, MC_CMD_PROXY_COMPLETE,
 				inbuf, sizeof(inbuf),
 				NULL, 0, NULL);
@@ -806,6 +799,8 @@ static int efx_proxy_auth_send_response(struct proxy_admin_state *pa, u32 index,
 					"%s: MC complete returned %d\n",
 					__func__, rc);
 	}
+
+	atomic_set(&req->state, PROXY_REQ_IDLE);
 
 	return rc;
 }
