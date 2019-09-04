@@ -1,0 +1,732 @@
+#!/bin/sh
+######################################################################
+# Build and install openonload into system directories.
+# Author: David Riddoch
+######################################################################
+
+bin=$(cd $(dirname "$0") && /bin/pwd)
+me=$(basename "$0")
+
+err()  { echo >&2 "$*"; }
+log()  { err "$me: $*"; }
+fail() { log "$*"; exit 1; }
+try()  { "$@" || fail "FAILED: $*"; }
+
+
+logprog() { $logprog && echo "$me: $*"; }
+
+
+usage() {
+  err
+  err "usage:"
+  err "  $me [options]"
+  err
+  err "options:"
+  err "  --newkernel <ver>  - Build and install drivers for new kernel"
+  err "  --kernelver <ver>  - Specify kernel version for drivers"
+  err "  --nobuild          - Do not (re)compile"
+  err "  --require32        - Fail if 32-bit binaries are not installed"
+  err "  --setuid           - Preload libraries are set-uid and set-gid"
+  err "  --nosetuid         - Preload libraries are not set-uid/gid"
+  err "  --affinity         - Include sfcaffinity"
+  err "  --noaffinity       - Do not include sfcaffinity"
+  err "  --debug            - Build debug binaries"
+  err "  --no-debug-info    - Omit debug info from binaries"
+  err "  --strict           - Compiler warnings are errors"
+  if is_ppc ; then
+    err "  --ppc-at=<cc path> - Compile with IBM AT and -O3, "
+    err "                       give AT CC path, should be in /opt"
+  fi
+  err "  --userfiles        - Only install user-level components"
+  err "  --kernelfiles      - Only install kernel driver components"
+  err "  --modprobe         - Only install modprobe configuration"
+  err "  --initscript       - Only install init script"
+  err "  --force            - Force install if already installed"
+  err "  --verbose          - Verbose logging of commands"
+  err "  --test             - Do not install; just print commands"
+  err "  --listfiles        - Do not install; just list installed files"
+  err
+  err "  --filter-engine    - Specify location of filter engine directory"
+  err "                       by default - /opt/onload_filter_engine"
+  err "  --no-filter-engine - Don't include filter engine support even if it's"
+  err "                       present in the system"
+  err
+  exit 1
+}
+
+
+donot() {
+  return 0
+}
+
+
+is_rhel4() {
+  grep -qi "Red Hat Enterprise.*release 4" /etc/redhat-release 2>/dev/null
+}
+
+is_ppc () {
+  local platform="$(uname -m)"
+
+  [ "$platform" = "ppc64" -o "$platform" = "ppc32" ] && return 0
+  return 1
+}
+
+manifest_add() {
+  if [ -n "$manifest" ] && ! $test; then
+    echo "$1" >>"$manifest"
+  fi
+  if $listfiles; then
+    echo "$1"
+  fi
+  return 0
+}
+
+manifest_combine() {
+  if [ -f "$1" ]; then
+    if [ -n "$manifest" ] && ! $test; then
+      cat "$1" >>"$manifest"
+    fi
+    if $listfiles; then
+      cat "$1"
+    fi
+    try $do rm $1
+    return 0
+  fi
+  return 1
+}
+
+# Install a file (non executable).
+install_f() {
+  try $do install -D -m 644 "$1" "$2" &&
+  manifest_add "$2"
+}
+
+
+# Install an executable.
+install_x() {
+  try $do install -D "$1" "$2" &&
+  manifest_add "$2"
+}
+
+
+# Install a directory.  (NB. Entire contents removed on uninstall).
+install_dir() {
+  try $do install -D -d "$1" &&
+  manifest_add "$1"
+}
+
+
+# Install a symbolic link.
+install_link() {
+  if [ "$(dirname "$1")" = "$(dirname "$2")" ]; then
+    (try cd $(dirname $1); \
+     try $do ln -s $(basename "$1") $(basename "$2") &&
+     manifest_add "$2")
+  else
+    try $do ln -s "$1" "$2" && manifest_add "$2"
+  fi
+}
+
+
+# Install a dynamic (shared) library.
+install_dlib() {
+  local libf="$1"
+  local destdir="$2"
+  try [ -d "$destdir" ]
+  while [ -L "$libf" ]; do
+    libf=$(readlink -f "$libf")
+  done
+  local realname=$(basename "$libf")
+  local linkname=$(echo "$realname" | sed 's/\.so\..*/.so/')
+  install_x "$libf" "$destdir/$realname"
+  if [ "$realname" != "$linkname" ]; then
+    install_link "$destdir/$realname" "$destdir/$linkname"
+  fi
+}
+
+
+# Install a 32-bit dynamic (shared) library on 64-bit systems.
+install_dlib32() {
+  if ! (install_dlib "$@" 2>/dev/null); then
+    fail32=true
+  fi
+}
+
+
+# Install a preload library.
+install_plib() {
+  install_x "$@" &&
+  $setuid && try $do chmod +s "$2"
+  return 0
+}
+
+
+# Use to install 32-bit preload lib on 64-bit systems.
+install_plib32() {
+  if ! (install_plib "$@" 2>/dev/null); then
+    fail32=true
+  fi
+}
+
+
+# Install a static library.
+install_slib() {
+  local libf="$1"
+  local destdir="$2"
+  install_f "$libf" "$destdir/$(basename "$libf")"
+}
+
+
+# Install a 32-bit static library on 64-bit systems.
+install_slib32() {
+  if ! (install_slib "$@" 2>/dev/null); then
+    fail32=true
+  fi
+}
+
+install_solar_clusterd() {
+  local clusterd_lib="$u64/tools/solar_clusterd/cluster_protocol.so"
+  local python_cmd
+  local python_sitelib
+
+  python_cmd="from distutils.sysconfig import get_python_lib; import sys; "
+  python_cmd="$python_cmd sys.stdout.write(get_python_lib(plat_specific=1))"
+  python_sitelib=$(python -c "$python_cmd" 2> /dev/null)
+
+  if [ $? != 0 ]; then
+    log "WARNING: solar_clusterd will not be installed as python" \
+        "site-packages location could not be determined." \
+        "(If using SLES10 you need the 'python-devel' package)"
+  elif [ ! -e "$clusterd_lib" ]; then
+    log "Not installing solar_clusterd because it has not been built."
+  else
+    try mkdir -p "$python_sitelib/solar_clusterd"
+
+    # Install built python extension module
+    install_dlib "$clusterd_lib" "$python_sitelib/solar_clusterd"
+
+    # Install solar_clusterd script and all python files from source folder
+    try $do cd "$TOP/src/tools/solar_clusterd" > /dev/null
+
+    install_x solar_clusterd "$i_usrbin/solar_clusterd"
+
+    /bin/ls *.py |
+      while read -r f; do
+        install_f "$f" "$python_sitelib/solar_clusterd"
+      done;
+
+    try $do cd - > /dev/null
+  fi
+}
+
+######################################################################
+
+install_uninstall() {
+  # First get uninstall support there, so we can use it to clean-up if
+  # install fails part way through.
+  manifest="$i_usrlibexec/uninstall_manifest"
+  install_dir "$i_usrlibexec"
+  try $do cd "$TOP/scripts"
+  install_x onload_misc/onload_uninstall "$i_usrsbin/onload_uninstall"
+  manifest_add /dev/onload
+}
+
+
+install_userland() {
+  # Install libraries and tools.
+  try $do cd "$TOP/build"
+  u32="$(mmaketool --userbuild_base32)"
+  u64="gnu_$(mmaketool --userarch)"
+  if [ -d "$u64" ]; then
+    # Tolerate lack of 32-bit transport library on 64-bit systems.
+    install_plib32 "$u32/lib/transport/unix/libcitransport0.so" \
+                "$i_lib32/libonload.so"
+    install_plib "$u64/lib/transport/unix/libcitransport0.so" \
+              "$i_lib64/libonload.so"
+    install_dlib "$u64"/lib/onload_ext/libonload_ext.so "$i_lib64"
+    install_dlib32 "$u32"/lib/onload_ext/libonload_ext.so "$i_lib32"
+    install_slib "$u64"/lib/onload_ext/libonload_ext.a "$i_lib64"
+    install_slib32 "$u32"/lib/onload_ext/libonload_ext.a "$i_lib32"
+    install_slib "$u64"/lib/ciul/libciul1.a "$i_lib64"
+    install_slib32 "$u32"/lib/ciul/libciul1.a "$i_lib32"
+    install_x "$u64/tools/ip/onload_stackdump" "$i_usrbin/onload_stackdump"
+    install_x "$u64/tools/ip/onload_tcpdump.bin" "$i_usrbin/onload_tcpdump.bin"
+    install_x "$u64/tools/ip/onload_fuser" "$i_usrbin/onload_fuser"
+    [ -f "$u64/tools/ip/onload_fe" ] && install_x "$u64/tools/ip/onload_fe" "$i_usrbin/onload_fe"
+    install_solar_clusterd
+    $affinity && {
+      install_plib32 "$u32/lib/sfcaffinity/libsfcaffinity.so" \
+                  "$i_lib32/libsfcaffinity.so"
+      install_plib "$u64/lib/sfcaffinity/libsfcaffinity.so" \
+                "$i_lib64/libsfcaffinity.so"
+      install_x "$u64/tools/sfcaffinity/sfcaffinity_tool" \
+               "$i_usrbin/sfcaffinity_tool"
+    }
+  else
+    install_plib "$u32/lib/transport/unix/libcitransport0.so" \
+              "$i_lib32/libonload.so"
+    install_dlib "$u32"/lib/onload_ext/libonload_ext.so "$i_lib32"
+    install_slib "$u32"/lib/onload_ext/libonload_ext.a "$i_lib32"
+    install_slib "$u32"/lib/ciul/libciul1.a "$i_lib32"
+    install_x "$u32/tools/ip/onload_stackdump" "$i_usrbin/onload_stackdump"
+    install_x "$u32/tools/ip/onload_tcpdump.bin" "$i_usrbin/onload_tcpdump.bin"
+    install_x "$u32/tools/ip/onload_fuser" "$i_usrbin/onload_fuser"
+    [ -f "$u32/tools/ip/onload_fe" ] && install_x "$u32/tools/ip/onload_fe" "$i_usrbin/onload_fe"
+    $affinity && {
+      install_plib "$u32/lib/sfcaffinity/libsfcaffinity.so" \
+                "$i_lib32/libsfcaffinity.so"
+      install_x "$u32/tools/sfcaffinity/sfcaffinity_tool" \
+               "$i_usrbin/sfcaffinity_tool"
+    }
+  fi
+
+  # Install scripts.
+  try $do cd "$TOP/scripts"
+  install_x onload_tool "$i_sbin/onload_tool"
+  install_x onload "$i_usrbin/onload"
+  install_x sfcirqaffinity "$i_usrsbin/sfcirqaffinity"
+  install_x onload_misc/onload_init_rc "$i_etc/init.d/openonload"
+  install_f onload_misc/onload_sysconfig "$i_etc/sysconfig/openonload"
+  install_x onload_tcpdump "$i_usrbin/onload_tcpdump"
+  install_x onload_iptables "$i_usrbin/onload_iptables"
+  $affinity && {
+    install_x sfcaffinity_config "$i_usrsbin/sfcaffinity_config"
+    install_x sfcaffinity "$i_usrbin/sfcaffinity"
+  }
+  install_dir "$i_usrlibexec/apps"
+  try cd "$TOP/scripts/onload_apps"
+  /bin/ls |
+    while read -r f; do
+      install_f "$f" "$i_usrlibexec/apps/$f"
+    done
+  try cd "$TOP/scripts/onload_profiles"
+  /bin/ls |
+    while read -r f; do
+      install_f "$f" "$i_usrlibexec/profiles/$f"
+    done
+
+  # Install python components.
+  try $do cd "$TOP/scripts"
+  python_manifest=$(mktemp)
+  [ -f setup.py ] || try $do cp onload_misc/setup.py .
+  if [ -z "$i_prefix" ]; then
+    # Debian and Ubuntu mess up if --prefix=/usr is set.
+    $do python setup.py install --record=$python_manifest
+  else
+    $do python setup.py install --prefix="$i_prefix/usr"\
+                                --record=$python_manifest
+  fi
+
+  if [ $? != 0 ]; then
+    log "Could not install OpenOnload python modules. "\
+        "(If using SLES10 you need the 'python-devel' package)"
+  fi
+
+  manifest_combine $python_manifest
+
+  try $do cd "$TOP/src/include"
+
+  # Install header files for Onload extensions library
+  install_f onload/extensions.h "$i_include/onload/extensions.h"
+  install_f onload/extensions_zc.h "$i_include/onload/extensions_zc.h"
+
+  # Install header files for ef_vi app development
+  /bin/ls etherfabric/*.h |
+    while read -r f; do
+      install_f "$f" "$i_include/$f"
+    done;
+
+  # Install aoe header files
+  try $do cd "$TOP/src/include"
+  if [ -e aoe/amm_streams.h ]; then
+    install_f aoe/amm_streams.h "$i_include/aoe/amm_streams.h"
+  fi
+  try $do cd "$TOP/src/driver"
+  if [ -e  linux_aoe/aoe_ioctl.h ]; then
+    install_f linux_aoe/aoe_ioctl.h "$i_include/aoe/aoe_ioctl.h"
+  fi
+}
+
+
+install_ldconfig() {
+  # Run ldconfig.
+  [ -d "$i_lib64" ] && ldconfig -n "$i_lib64"
+  [ -d "$i_lib32" ] && ldconfig -n "$i_lib32"
+}
+
+
+install_kernel_modules() {
+  # Install kernel drivers.
+  did="$i_prefix/lib/modules/$KVER/extra"
+  try $do cd "$TOP/build"
+  d=$(mmaketool --driverbuild)
+  if ! $test; then
+    try [ -n "$d" ]
+    try [ -d "$d" ]
+  fi
+  try $do cd "$TOP/build/$d/driver/linux"
+  install_f sfc.ko "$did/sfc.ko"
+  install_f sfc_resource.ko "$did/sfc_resource.ko"
+  install_f sfc_char.ko "$did/sfc_char.ko"
+  if [ -e sfc_aoe.ko ]; then 
+    install_f sfc_aoe.ko "$did/sfc_aoe.ko"
+  fi
+  install_f onload.ko "$did/onload.ko"
+  $affinity && install_f sfc_affinity.ko "$did/sfc_affinity.ko"
+  if [ -z "$i_prefix" ]; then
+    $do /sbin/depmod -a "$KVER" || log "depmod exited with status $?"
+  fi
+  # Debian/Ubuntu: get new sfc.ko into ramfs
+  if [ -z "$i_prefix" -a -f "/boot/initrd.img-$KVER" ] && \
+     which update-initramfs >/dev/null 2>&1; then
+    update-initramfs -u -k $KVER
+  fi
+
+  # Install driver meta-data.
+  try $do cd "$TOP/build/$d/driver"
+  install_f linux_net/Module.symvers "$did/sfc.symvers"
+  install_f linux_resource/Module.symvers "$did/sfc_resource.symvers"
+  install_f linux_char/Module.symvers "$did/sfc_char.symvers"
+  if [ -e linux_aoe/Module.symvers ]; then
+    install_f linux_aoe/Module.symvers "$did/sfc_aoe.symvers"
+  fi
+  install_f linux_onload/Module.symvers "$did/onload.symvers"
+  install_f linux_affinity/Module.symvers "$did/sfc_affinity.symvers"
+}
+
+
+rhel4_modprobe_fixup() {
+  mpf="$i_etc/modprobe.conf"
+  if [ -f "$mpf" ]; then
+    # Delete any legacy settings.
+    sed -i '/onload_start/,/onload_end/d' "$mpf" >/dev/null 2>&1
+    (
+      echo "# onload_start"
+      echo "include /etc/modprobe.d/onload.conf"
+      echo "# onload_end"
+    ) >>"$mpf"
+  fi
+}
+
+
+install_modprobe_conf() {
+  try $do cd "$TOP/scripts"
+
+  install_f onload_misc/onload_modprobe.conf "$i_etc/modprobe.d/onload.conf"
+  install_f onload_misc/sfc_aoe_modprobe.conf "$i_etc/modprobe.d/sfc_aoe.conf"
+  if is_rhel4 && ! $test; then
+    rhel4_modprobe_fixup
+  fi
+
+  if [ -d "$i_etc/depmod.d" ]; then
+    install_f onload_misc/onload_depmod.conf "$i_etc/depmod.d/onload.conf"
+  fi
+}
+
+
+# this function should be used only in case we failed to determine the distro
+install_init_script_gen() {
+  if [ -x /usr/lib/lsb/install_initd ] &&
+     $do /usr/lib/lsb/install_initd /etc/init.d/openonload; then
+    return 0
+  fi
+  if $try_chkconfig && which chkconfig >/dev/null 2>&1; then
+    try $do chkconfig --add openonload
+  elif which update-rc.d >/dev/null 2>&1; then
+    try $do update-rc.d openonload start 50 2 3 4 5 .
+  else
+    local dir linked
+    for dir in /etc/rc.d/rc[2345].d; do
+      if [ -d $dir ]; then
+	install_link /etc/init.d/openonload $dir/S50openonload
+	linked=y
+      fi
+    done
+    if [ -z "$linked" ]; then
+      log "Could not detect the type of init scripts used on this OS"
+      log "Please configure /etc/init.d/openonload service to start on boot"
+    fi
+  fi
+}
+
+
+install_init_script() {
+  # In case we're working on Debian-derived distro chkconfig should 
+  # not be used - it has internal problems which lead to failure.
+  if which dpkg >/dev/null 2>&1; then
+    try_chkconfig=false
+  else
+    try_chkconfig=true
+  fi
+
+  install_init_script_gen
+}
+
+
+conflict() {
+  msg="$1"
+  uninstallmsg="$2"
+  if $force; then
+    log "WARNING: $msg"
+    log "WARNING: Continuing anyway because of --force."
+  else
+    log "ERROR: $msg"
+    [ -n "$uninstallmsg" ] && log "ERROR: $uninstallmsg"
+    exit 1
+  fi
+}
+
+
+safe_rpm() {
+    if which rpm >/dev/null 2>&1; then
+	rpm $*
+	return $?
+    else
+	return 1
+    fi
+}
+
+check_file_installed() {
+  if [ -f "$1" ]; then
+    local pkg
+    pkg=$(safe_rpm -qf "$1" 2>/dev/null)
+    if [ $? = 0 ]; then
+      conflict "'$1' is already installed via package '$pkg'" \
+               "To remove, run: rpm -e '$pkg'"
+    else
+      conflict "An sfc driver is already installed at '$1'"
+    fi
+  fi
+}
+
+
+check_whether_installed() {
+  $check_install || return 0
+  if which onload_uninstall >/dev/null 2>&1; then
+    conflict "OpenOnload is already installed." \
+             "To remove, run: onload_uninstall"
+    return
+  fi
+  local rpm_qa=$(safe_rpm -qa)
+  if echo "$rpm_qa" | grep -q 'enterpriseonload'; then
+    conflict "EnterpriseOnload rpms are already installed." \
+             "To remove, run: rpm -qa | grep 'enterpriseonload' | xargs rpm -e"
+    return
+  fi
+  if echo "$rpm_qa" | grep -q 'openonload'| grep -e 'dkms'; then
+    conflict "OpenOnload rpms are already installed." \
+             "To remove, run: rpm -qa | grep 'openonload' | xargs rpm -e"
+    return
+  fi
+  local drv where
+  for drv in sfc.ko onload.ko sfc_aoe.ko; do
+    for where in updates extra; do
+      check_file_installed "$i_prefix/lib/modules/$KVER/$where/$drv"
+    done
+  done
+}
+
+######################################################################
+
+do_rpm_install() {
+  build=false
+  uninstall=false
+  initscript=false
+  ldconfig=false
+  check_install=false
+  sfccheck=false
+}
+
+
+do_rpm_post() {
+  # Invoked by the rpm install.
+  install_init_script
+  is_rhel4 && rhel4_modprobe_fixup
+  exit
+}
+
+
+######################################################################
+# main
+
+PATH="$bin:$PATH:/usr/sbin:/sbin"; export PATH
+TOP=$(cd "$bin/.." && /bin/pwd)
+
+buildargs=
+build=true
+affinity=true
+all=true
+userfiles=
+ldconfig=
+kernelfiles=
+modprobe=
+initscript=
+uninstall=true
+test=false
+do=
+listfiles=false
+fail32=false
+require32=false
+setuid=true
+force=false
+check_install=true
+logprog=true
+sfccheck=true
+withofe=true
+
+KVER=$(uname -r)
+export KVER
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+  --newkernel)  [ $# -gt 1 ] || usage; shift; KVER="$1";
+                check_install=false; all=false; kernelfiles=true; sfccheck=false
+                buildargs="$buildargs --kernel";;
+  --newkernel=*)KVER=${1#--newkernel=};
+                check_install=false; all=false; kernelfiles=true; sfccheck=false
+                buildargs="$buildargs --kernel";;
+  --kernelver)  [ $# -gt 1 ] || usage; shift; KVER="$1";;
+  --kernelver=*)KVER=${1#--kernelver=};;
+  --nobuild)    build=false;;
+  --require32)  require32=true;;
+  --setuid)     setuid=true;;
+  --nosetuid)   setuid=false;;
+  --noaffinity) affinity=false; buildargs="$buildargs $1";;
+  --affinity)   affinity=true;  buildargs="$buildargs $1";;
+  --debug)	buildargs="$buildargs $1";;
+  --no-debug-info)buildargs="$buildargs $1";;
+  --strict)	buildargs="$buildargs $1";;
+  --ppc-at=*) is_ppc || usage ; buildargs="$buildargs $1 ${1#--ppc-at}" ;;
+  --userfiles)	all=false; userfiles=true;;
+  --ldconfig)	all=false; ldconfig=true;;
+  --kernelfiles)all=false; kernelfiles=true;;
+  --modprobe)	all=false; modprobe=true;;
+  --initscript)	all=false; initscript=true;;
+  --uninstall)  uninstall=true;;
+  --nouserfiles)userfiles=false;;
+  --noldconfig) ldconfig=false;;
+  --nokernelfiles)kernelfiles=false;;
+  --nomodprobe)	modprobe=false;;
+  --noinitscript)initscript=false;;
+  --nouninstall)uninstall=false;;
+  --noinstallcheck) check_install=false;;
+  --nosfccheck) sfccheck=false;;
+  --force)	force=true;;
+  --verbose)	set -x;;
+  --test)	do=echo; test=true;;
+  --listfiles)	do=donot; test=true; listfiles=true; check_install=false
+                logprog=false; build=false; uninstall=false; sfccheck=false;;
+  --filter-engine=*) buildargs="$buildargs $1 ${1#--filter-engine}" ;;
+  --no-filter-engine) withofe=false; "$buildargs $1";;
+  -*)           usage;;
+  *)            break;;
+  esac
+  shift
+done
+
+# Where do we put everything?
+i_usrlibexec="$i_prefix/usr/libexec/onload"
+i_libexec="$i_prefix/lib/onload"
+i_sbin="$i_prefix/sbin"
+i_usrbin="$i_prefix/usr/bin"
+i_usrsbin="$i_prefix/usr/sbin"
+i_etc="$i_prefix/etc"
+i_include="$i_prefix/usr/include"
+
+# look for biarch/multiarch library directories
+#
+# TODO Is it possible to use autodetecttion for these directories?
+# Something like
+# i_lib=`ldd $(which lspci) |grep libpci.so |awk -e '{print $3}' | sed -e
+# 's/\/libpci\.so.*//'`
+i_lib32="$i_prefix/usr/lib"
+i_lib64="$i_prefix/usr/lib64"
+if [ -e /lib/x86_64-linux-gnu/libc.so.6 ]; then
+  # multiarch
+  i_lib64="$i_prefix/usr/lib/x86_64-linux-gnu"
+elif [ -e /lib64/libc.so.6 ]; then
+  # either biarch or pure64 with compatibility link
+  i_lib64="$i_prefix/usr/lib64"
+  i_lib32="$i_prefix/usr/lib"
+fi
+if [ -e /lib/i386-linux-gnu/libc.so.6 ]; then
+  # multiarch
+  i_lib32="$i_prefix/usr/lib/i386-linux-gnu"
+elif [ -e /lib32/libc.so.6 ]; then
+  # pure64 with secondary 32-bit
+  i_lib32="$i_prefix/usr/lib32"
+fi
+
+# Special commands.  May do something and exit, or may modify settings and
+# continue.
+case $# in
+  0)
+    ;;
+  1)
+    case "$1" in
+      rpm_install) do_rpm_install;;
+      rpm_post)    do_rpm_post;;
+      *)           usage;;
+    esac
+    ;;
+  *)
+    usage
+    ;;
+esac
+
+
+check_whether_installed
+
+if $build; then
+  logprog "Building OpenOnload."
+  "$bin/onload_build" $buildargs ||
+    fail "ERROR: Build failed.  Not installing."
+  logprog "Build complete."
+fi
+
+
+logprog "Installing OpenOnload."
+manifest=
+${uninstall:-$all}   && install_uninstall
+${userfiles:-$all}   && install_userland
+${ldconfig:-$all}    && install_ldconfig
+${modprobe:-$all}    && install_modprobe_conf
+${kernelfiles:-$all} && install_kernel_modules
+${initscript:-$all}  && install_init_script
+
+if $fail32 && $require32; then
+  err
+  log "ERROR: 32-bit libraries were not installed.  See build log"
+  log "ERROR: for further details."
+  err
+  exit 1
+fi
+
+logprog "Install complete."
+
+if $fail32; then
+  err
+  log "WARNING: 32-bit libraries were not installed.  As a result it will" \
+      "not be possible to accelerate 32-bit applications with OpenOnload. " \
+      "See build log for further details."
+  err
+fi
+if $sfccheck; then
+  if /sbin/lsmod | grep -qw sfc; then
+    err
+    log "WARNING: An 'sfc' driver is already loaded.  You should"
+    log "WARNING: unload and reload (or reboot) to ensure you are"
+    log "WARNING: using the version supplied with OpenOnload."
+    err
+    log "WARNING: Try:   onload_tool reload"
+    err
+    log "WARNING: If this problem persists you may need to update"
+    log "WARNING: your initramfs to include the correct sfc module"
+  else
+    echo
+    echo "$me: To load the newly installed drivers run:  onload_tool reload"
+    echo
+  fi
+fi
+
+exit 0
