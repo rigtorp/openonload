@@ -152,7 +152,7 @@ static char *onloadfs_dname(struct dentry *dentry, char *buffer, int buflen)
 }
 #endif
 
-#ifndef EFX_HAVE_STRUCT_PATH
+#ifndef EFRM_HAVE_STRUCT_PATH
 static int onloadfs_delete_dentry(struct dentry *dentry)
 {
 #ifdef EFX_HAVE_D_DNAME
@@ -174,7 +174,7 @@ struct dentry_operations onloadfs_dentry_operations = {
 #ifdef EFX_HAVE_D_DNAME
   .d_dname  = onloadfs_dname,
 #endif
-#ifndef EFX_HAVE_STRUCT_PATH
+#ifndef EFRM_HAVE_STRUCT_PATH
   .d_delete = onloadfs_delete_dentry,
 #endif
 };
@@ -311,7 +311,7 @@ onload_alloc_file(tcp_helper_resource_t *thr, oo_sp ep_id,
                   int flags, int fd_type, ci_private_t **priv_p)
 {
   struct qstr name = { .name = "" };
-#ifdef EFX_HAVE_STRUCT_PATH
+#ifdef EFRM_HAVE_STRUCT_PATH
   struct path path;
 #define my_dentry path.dentry
 #else
@@ -380,7 +380,7 @@ onload_alloc_file(tcp_helper_resource_t *thr, oo_sp ep_id,
 
 #if !defined(EFX_FSTYPE_HAS_MOUNT) || defined(EFX_OLD_MOUNT_PSEUDO)
   my_dentry->d_op = &onloadfs_dentry_operations;
-#if !defined(EFX_HAVE_STRUCT_PATH) && defined(EFX_HAVE_D_DNAME)
+#if !defined(EFRM_HAVE_STRUCT_PATH) && defined(EFX_HAVE_D_DNAME)
   my_dentry->d_flags &= ~DCACHE_UNHASHED;
 #endif
 #endif
@@ -390,14 +390,14 @@ onload_alloc_file(tcp_helper_resource_t *thr, oo_sp ep_id,
 #endif
   inode->i_fop = fops;
 
-#ifdef EFX_HAVE_STRUCT_PATH
+#ifdef EFRM_HAVE_STRUCT_PATH
   path.mnt = mntget(onload_mnt);
   file = alloc_file(&path, FMODE_READ | FMODE_WRITE, fops);
 #else
   file = alloc_file(onload_mnt, dentry, FMODE_READ | FMODE_WRITE, fops);
 #endif
   if( file == NULL) {
-#ifdef EFX_HAVE_STRUCT_PATH
+#ifdef EFRM_HAVE_STRUCT_PATH
     path_put(&path);
 #else
     dput(dentry);

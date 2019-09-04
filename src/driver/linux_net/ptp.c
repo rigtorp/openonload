@@ -1725,7 +1725,11 @@ static inline void efx_ptp_process_rx(struct efx_nic *efx, struct sk_buff *skb)
 
 	/* Translate timestamps, as required */
 	if (match->state == PTP_PACKET_STATE_MATCHED &&
+#if !defined(EFX_USE_KCOMPAT) || !defined(EFX_HAVE_KTIME_UNION)
+	    timestamps->hwtstamp) {
+#else
 	    timestamps->hwtstamp.tv64) {
+#endif
 		efx_ptp_get_host_time(efx, timestamps);
 #ifdef CONFIG_SFC_DEBUGFS
 		efx_ptp_update_delta_stats(efx, timestamps);
@@ -3295,12 +3299,14 @@ void efx_time_sync_event(struct efx_channel *channel, efx_qword_t *ev)
 #define FUZZ (MINOR_TICKS_PER_SECOND / 10)
 #define EXPECTED_SYNC_EVENTS_PER_SECOND 4
 
-static inline u32 efx_rx_buf_timestamp_minor(struct efx_nic *efx, const u8 *eh)
+static inline u32 efx_rx_buf_timestamp_minor(struct efx_nic *efx,
+					     const u8 *prefix)
 {
 #if defined(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS)
-	return __le32_to_cpup((const __le32 *)(eh + efx->rx_packet_ts_offset));
+	return __le32_to_cpup((const __le32 *)(prefix +
+					       efx->type->rx_ts_offset));
 #else
-	const u8 *data = eh + efx->rx_packet_ts_offset;
+	const u8 *data = prefix + efx->type->rx_ts_offset;
 	return (u32)data[0]       |
 	       (u32)data[1] << 8  |
 	       (u32)data[2] << 16 |
@@ -3309,7 +3315,8 @@ static inline u32 efx_rx_buf_timestamp_minor(struct efx_nic *efx, const u8 *eh)
 }
 
 void __efx_rx_skb_attach_timestamp(struct efx_channel *channel,
-				   struct sk_buff *skb)
+				   struct sk_buff *skb,
+				   const u8 *prefix)
 {
 	struct efx_nic *efx = channel->efx;
 	u32 pkt_timestamp_major, pkt_timestamp_minor;
@@ -3325,8 +3332,7 @@ void __efx_rx_skb_attach_timestamp(struct efx_channel *channel,
 	if (channel->sync_events_state != SYNC_EVENTS_VALID)
 		return;
 
-	pkt_timestamp_minor = (efx_rx_buf_timestamp_minor(efx,
-							  skb_mac_header(skb)) +
+	pkt_timestamp_minor = (efx_rx_buf_timestamp_minor(efx, prefix) +
 			       (u32) efx->ptp_data->ts_corrections.rx) &
 			      (MINOR_TICKS_PER_SECOND - 1);
 

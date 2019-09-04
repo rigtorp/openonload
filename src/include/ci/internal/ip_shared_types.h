@@ -1093,8 +1093,9 @@ struct ci_netif_state_s {
 
 
 struct oo_timesync {
-  struct oo_timespec clock;         /* a recent value from system clock */
-  ci_uint64 clock_made;             /* time (frc) clock was stored */
+  struct oo_timespec mono_clock;    /* recent monotonic system clock */
+  struct oo_timespec wall_clock;    /* recent wall system clock */
+  ci_uint64 clock_made;             /* time (frc) [mono,wall]clock was stored */
   ci_uint64 smoothed_ticks;         /* frc ticks during smoothed_ns time */
   ci_uint64 smoothed_ns;            /* ns to count smoothed_ticks */
   ci_uint64 update_jiffies;         /* time in jiffies of next update */

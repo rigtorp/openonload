@@ -141,6 +141,7 @@ EFX_USE_MTD_WRITESIZE			symbol	writesize		include/linux/mtd/mtd.h
 EFX_USE_NETDEV_DEV			member	struct_net_device	dev	include/linux/netdevice.h
 EFX_USE_NETDEV_STATS			custom
 EFX_USE_NETDEV_STATS64			member	struct_net_device_ops	ndo_get_stats64 include/linux/netdevice.h
+EFX_HAVE_NETDEV_STATS64_VOID		memtype	struct_net_device_ops	ndo_get_stats64	include/linux/netdevice.h	void(*)(struct net_device *, struct rtnl_link_stats64 *)
 EFX_USE_PCI_DEV_REVISION		symbol	revision		include/linux/pci.h
 EFX_USE_NETDEV_VLAN_FEATURES		symbol	vlan_features		include/linux/netdevice.h
 EFX_USE_NETDEV_PERM_ADDR		symbol	perm_addr		include/linux/netdevice.h
@@ -299,7 +300,9 @@ EFX_HAVE_OLD_KMAP_ATOMIC		custom
 EFX_HAVE_DEBUGFS_CREATE_SYMLINK		symbol	debugfs_create_symlink	include/linux/debugfs.h
 EFX_HAVE_INODE_U_GENERIC_IP		symbol	generic_ip		include/linux/fs.h
 EFX_HAVE_NAPI_STRUCT			symbol	napi_struct		include/linux/netdevice.h
-EFX_NEED_NAPI_HASH			nsymbol	napi_hash_add		include/linux/netdevice.h
+EFX_HAVE_NAPI_STRUCT_NAPI_ID		member	struct_napi_struct	napi_id	include/linux/netdevice.h
+EFX_HAVE_NAPI_HASH_ADD			symbol	napi_hash_add		include/linux/netdevice.h
+EFX_HAVE_NAPI_HASH_DEL_RETURN		symtype	napi_hash_del		include/linux/netdevice.h	int (struct napi_struct *)
 EFX_NEED_SKB_SET_HASH			nsymbol skb_set_hash		include/linux/skbuff.h
 EFX_HAVE_SKB_L4HASH			member	struct_sk_buff l4_rxhash	include/linux/skbuff.h
 EFX_HAVE_SKB_VLANTCI                     member    struct_sk_buff vlan_tci        include/linux/skbuff.h
@@ -337,7 +340,6 @@ EFX_HAVE_NETFILTER_INDIRECT_SKB		memtype	struct_nf_hook_ops	hook	include/linux/n
 EFX_HAVE_NFPROTO_CONSTANTS		symbol	NFPROTO_NUMPROTO	include/linux/netfilter.h
 EFX_HAVE_FDTABLE			symbol	files_fdtable		include/linux/file.h include/linux/fdtable.h
 EFX_HAVE_REMAP_PFN_RANGE		symbol	remap_pfn_range		include/linux/mm.h
-EFX_NEED_GETNSTIMEOFDAY			nexport	getnstimeofday		include/linux/time.h
 EFX_NEED_PCI_READ_VPD			nsymbol pci_read_vpd		include/linux/pci.h
 EFX_NEED_PCI_VPD_LRDT			nsymbol PCI_VPD_LRDT		include/linux/pci.h
 EFX_HAVE_KERN_UMOUNT			symbol	kern_unmount		include/linux/fs.h
@@ -400,6 +402,7 @@ EFX_HAVE_SKB_ENCAPSULATION	bitfield	struct_sk_buff	encapsulation	include/linux/s
 EFX_HAVE_NDO_ADD_GENEVE_PORT	member	struct_net_device_ops	ndo_add_geneve_port	include/linux/netdevice.h
 EFX_NEED_D_HASH_AND_LOOKUP	nexport	d_hash_and_lookup	include/linux/dcache.h fs/dcache.c
 EFX_HAVE_NETDEV_MTU_LIMITS	member	struct_net_device	max_mtu	include/linux/netdevice.h
+EFX_HAVE_KTIME_UNION		custom
 " | egrep -v -e '^#' -e '^$' | sed 's/[ \t][ \t]*/:/g'
 }
 
@@ -916,10 +919,10 @@ void test(void) { on_each_cpu(worker, NULL, 0, 0); }
 function do_EFX_NEED_MMIOWB()
 {
     local header
-    if [ -f "$KBUILD_SRC/include/linux/io.h" ]; then
-	header=linux/io.h
-    else
+    if [ -f "$KBUILD_SRC/include/asm/io.h" ]; then
 	header=asm/io.h
+    else
+	header=linux/io.h
     fi
     defer_test_compile neg "
 #include <$header>
@@ -1029,6 +1032,19 @@ function do_EFX_HAVE_OLD_KMAP_ATOMIC
 void *f(struct page *p)
 {
 	return kmap_atomic(p);
+}
+"
+}
+
+function do_EFX_HAVE_KTIME_UNION
+{
+	defer_test_compile pos "
+#include <linux/ktime.h>
+
+void f(void)
+{
+	ktime_t t;
+	t.tv64 = 0;
 }
 "
 }

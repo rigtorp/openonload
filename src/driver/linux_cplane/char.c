@@ -141,8 +141,7 @@ static struct page* cicp_vm_op_nopage(struct vm_area_struct* vma,
 #ifndef EFRM_VMA_HAS_NOPAGE
 static int cicp_vm_op_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
-  vmf->page = cicp_vm_op_nopage(vma, (unsigned long)vmf->virtual_address,
-                                NULL);
+  vmf->page = cicp_vm_op_nopage(vma, VM_FAULT_ADDRESS(vmf), NULL);
   return ( vmf->page == NULL ) ? VM_FAULT_SIGBUS : 0;
 }
 #endif

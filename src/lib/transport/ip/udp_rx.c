@@ -88,7 +88,7 @@ int ci_udp_timestamp_q_enqueue(ci_netif* ni, ci_udp_state* us,
 int ci_udp_recv_q_reap(ci_netif* ni, ci_udp_recv_q* q)
 {
   int freed = 0;
-  while( ! OO_PP_EQ(q->head, q->extract) ) {
+  while( ! OO_PP_EQ(q->head, OO_ACCESS_ONCE(q->extract)) ) {
     ci_ip_pkt_fmt* pkt = PKT_CHK(ni, q->head);
     int n_buffers = pkt->n_buffers;
     q->head = pkt->udp_rx_next;

@@ -527,14 +527,16 @@ static int efx_mcdi_acquire_sync(struct efx_mcdi_iface *mcdi)
 	 */
 	rc = wait_event_timeout(mcdi->wq,
 		atomic_cmpxchg(&mcdi->state,
-				MCDI_STATE_QUIESCENT,
-				MCDI_STATE_RUNNING_SYNC) ==
-				MCDI_STATE_QUIESCENT,
-				efx->type->mcdi_acquire_timeout ?
-					efx->type->mcdi_acquire_timeout(efx) :
-					MCDI_ACQUIRE_TIMEOUT);
+			       MCDI_STATE_QUIESCENT,
+			       MCDI_STATE_RUNNING_SYNC) ==
+		MCDI_STATE_QUIESCENT,
+		efx->type->mcdi_acquire_timeout ?
+			efx->type->mcdi_acquire_timeout(efx) :
+			MCDI_ACQUIRE_TIMEOUT);
 
-	if (rc == 0) {
+	if (rc == 0 &&
+	    atomic_cmpxchg(&mcdi->state, MCDI_STATE_QUIESCENT,
+			   MCDI_STATE_RUNNING_SYNC) != MCDI_STATE_QUIESCENT) {
 		if (efx_nic_hw_unavailable(efx))
 			return -ENETDOWN;
 

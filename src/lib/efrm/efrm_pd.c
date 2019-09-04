@@ -1014,7 +1014,8 @@ static int efrm_pd_dma_map_bt(struct efrm_pd *pd, int n_pages, int nic_order,
 	}
 
 	if (rc < 0) {
-		EFRM_ERR("%s: ERROR: buffer table entry allocation failed "
+		EFRM_ERR_LIMITED
+			 ("%s: ERROR: buffer table entry allocation failed "
 			 "(%d pages nic_order %d) rc=%d",
 			 __FUNCTION__, n_pages, nic_order, rc);
 		return rc;

@@ -83,7 +83,7 @@ extern asmlinkage long
 efab_linux_trampoline_handler_close3232(struct pt_regs *regs);
 #else /* x86_64 */
 extern asmlinkage long
-efab_linux_trampoline_handler_close64(int fd, struct pt_regs *regs);
+efab_linux_trampoline_handler_close64(int fd, unsigned long* stack_start);
 #ifdef CONFIG_COMPAT
 extern asmlinkage int
 efab_linux_trampoline_handler_close32(unsigned long bx, unsigned long cx,

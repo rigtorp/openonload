@@ -60,6 +60,7 @@
  *--------------------------------------------------------------------*/
 
 #ifdef __x86_64__
+#  include <asm/processor.h>
 #  include <asm/msr.h>
 /* No asm/pda.h in >= 2.6.30.
  * Its content is partially in asm/percpu.h, but approach is different. */
@@ -760,7 +761,7 @@ avoid_sysret(void)
 /* There are 2 ways to enter syscall: int80 and vsyscall page.
  * We'll store offsets for 2 different stack layouts. */
 #define TRAMP_PRESAVED_OFF32 2
-static int tramp_offset[TRAMP_PRESAVED_OFF32] = {0,0};
+static int tramp_offset32[TRAMP_PRESAVED_OFF32] = {0,0};
 #endif
 
 #endif
@@ -784,6 +785,8 @@ tramp_close_begin(int fd, ci_uintptr_t *tramp_entry_out,
   if( f != NULL ) {
     if( FILE_IS_ENDPOINT(f) ) {
       struct mm_hash *p;
+      TRAMP_DEBUG("%s: file is endpoint", __FUNCTION__);
+
       read_lock (&oo_mm_tbl_lock);
       p = oo_mm_tbl_lookup(current->mm);
       if (p) {
@@ -820,11 +823,11 @@ tramp_stack_find_regs32(unsigned long *stack)
 
   /* Is one of our saved offsets good? */
   for( i = 0; i < TRAMP_PRESAVED_OFF32; i++ ) {
-    if( tramp_offset[i] == 0 )
+    if( tramp_offset32[i] == 0 )
       break;
-    if( memcmp(regs + tramp_offset[i], stack, 6 * sizeof(*regs)) == 0 ) {
-      TRAMP_DEBUG("%s: reuse offset[%d] = %d", __func__, i, tramp_offset[i]);
-      return (void *)(regs + tramp_offset[i]);
+    if( memcmp(regs + tramp_offset32[i], stack, 6 * sizeof(*regs)) == 0 ) {
+      TRAMP_DEBUG("%s: reuse offset[%d] = %d", __func__, i, tramp_offset32[i]);
+      return (void *)(regs + tramp_offset32[i]);
     }
   }
 
@@ -833,7 +836,7 @@ tramp_stack_find_regs32(unsigned long *stack)
   for( regs++, off = 1; off < 20; regs++, off++ ) {
     if( memcmp(regs, stack, 6 * sizeof(*regs)) == 0 ) {
       if( i < TRAMP_PRESAVED_OFF32 ) {
-        tramp_offset[i] = off;
+        tramp_offset32[i] = off;
         TRAMP_DEBUG("%s: offset[%d] = %d", __func__, i, off);
       }
       else {
@@ -918,6 +921,7 @@ efab_linux_trampoline_handler_close3232(struct pt_regs *regs)
   TRAMP_DEBUG("  flags %08lx", flags(regs));
   TRAMP_DEBUG("  sp %08lx", sp(regs));
   TRAMP_DEBUG("  ss %08lx", (unsigned long)ss(regs));
+  TRAMP_DEBUG("trampoline_exclude %08lx", (unsigned long) trampoline_exclude);
 
   if (ip(regs) == trampoline_exclude) {
     TRAMP_DEBUG("Ignoring call from excluded address 0x%08lx",
@@ -970,16 +974,110 @@ efab_linux_trampoline_handler_close3232(struct pt_regs *regs)
 }
 
 #else /* x86_64 */
- 
+
+/* The registers are pushed onto the stack by the kernel's handler for the
+ * SYSCALL instruction.  However, by the time Onload's syscall hook has been
+ * called, we have no guarantees that the stack pointer has not been advanced
+ * in some arbitrary way, and indeed on kernels >= 4.6 this can happen.  To
+ * account for this, we walk the stack in search of some known register values
+ * in expected places.  We begin looking at the location suggested by our asm
+ * stub and passed into our C handler, which will be correct on old kernels,
+ * and proceed from there if necessary.
+ *     We remember up to two offsets at which we have found the registers.
+ * This is sufficient at the time of writing.  It might not be in future, but
+ * if and when it happens we'd like to know about it, as there's every chance
+ * that such a change would break other things, too. */
+#define TRAMP_REGS64_SEARCH_DEPTH 32
+#define TRAMP_PRESAVED_OFF64 2
+static int tramp_offset64[TRAMP_PRESAVED_OFF64] = {-1, -1};
+
+
+/* Heuristic for deciding whether a struct pt_regs looks valid. */
+static inline int /* bool */
+looks_like_pt_regs64(const unsigned long* stack, unsigned long syscall_num)
+{
+  const struct pt_regs* regs = (const struct pt_regs*) stack;
+  const unsigned long flags_set_bits =
+    X86_EFLAGS_IF
+#ifdef X86_EFLAGS_FIXED
+    | X86_EFLAGS_FIXED
+#endif
+    ;
+  const unsigned long flags_clear_bits = X86_EFLAGS_VM;
+
+  ci_assert(segment_eq(get_fs(), USER_DS));
+
+  return
+    /* %rax contains the syscall number. */
+    orig_ax(regs) == syscall_num &&
+    /* %rip is inside the task somewhere, which is what access_ok() actually
+     * checks. */
+    access_ok(VERIFY_READ, ip(regs), 1) &&
+    /* %rdi contains the fd.  The only ABI guarantee that we have here is that
+     * this will be 32-bit. */
+    (di(regs) & ~((1ull << 32) - 1)) == 0 &&
+    /* %r11 contains the flags.  Check some known bits. */
+    (regs->r11 & flags_set_bits) == flags_set_bits &&
+    (regs->r11 & flags_clear_bits) == 0;
+}
+
+
+/* Walk the stack to find a struct pt_regs using looks_like_pt_regs64(). */
+static struct pt_regs *
+tramp_stack_find_regs64(unsigned long *stack, unsigned long syscall_num)
+{
+  int i, off;
+
+  /* Is one of our saved offsets good? */
+  for( i = 0; i < TRAMP_PRESAVED_OFF64; ++i ) {
+    if( tramp_offset64[i] < 0 )
+      break;
+    if( looks_like_pt_regs64(stack + tramp_offset64[i], syscall_num) ) {
+      TRAMP_DEBUG("%s: reuse offset[%d] = %d", __func__, i, tramp_offset64[i]);
+      return (struct pt_regs*) (stack + tramp_offset64[i]);
+    }
+  }
+
+  /* Walk the stack for a bit in search of the registers. */
+  for( off = 0; off < TRAMP_REGS64_SEARCH_DEPTH; stack++, off++ ) {
+    if( looks_like_pt_regs64(stack, syscall_num) ) {
+      if( i < TRAMP_PRESAVED_OFF64 ) {
+        tramp_offset64[i] = off;
+        TRAMP_DEBUG("%s: offset[%d] = %d", __func__, i, off);
+      }
+      else {
+        /* More syscall paths exist than we thought.  We'd like to know about
+         * this!  As such, we assert in debug builds, but in release builds we
+         * soldier on, since the address looks valid. */
+        TRAMP_DEBUG("%s: 3rd offset %d", __func__, off);
+        ci_assert(0);
+      }
+      return (struct pt_regs*) stack;
+    }
+  }
+
+  TRAMP_DEBUG("%s: Couldn't find registers on the stack.", __func__);
+  ci_assert(0);
+  return NULL;
+}
+
+
 asmlinkage long
-efab_linux_trampoline_handler_close64(int fd, struct pt_regs *regs)
+efab_linux_trampoline_handler_close64(int fd, unsigned long* stack_start)
 {
   ci_uintptr_t trampoline_entry = 0;
   ci_uintptr_t trampoline_exclude = 0;
   unsigned long *user_sp =0;
+  struct pt_regs* regs;
 
   if( tramp_close_begin(fd, &trampoline_entry, &trampoline_exclude) )
     return tramp_close_passthrough(fd);
+
+  regs = tramp_stack_find_regs64(stack_start, __NR_close);
+  if( regs == NULL ) {
+    TRAMP_DEBUG("%s: Not trampolining: couldn't find registers.", __func__);
+    return tramp_close_passthrough(fd);
+  }
 
 
   /* Let's trampoline! */
@@ -1017,6 +1115,8 @@ efab_linux_trampoline_handler_close64(int fd, struct pt_regs *regs)
   TRAMP_DEBUG("  flags %016lx XX", flags(regs));
   TRAMP_DEBUG("  rsp %016lx XX", sp(regs));
   TRAMP_DEBUG("  ss  %016lx XX",regs->ss);
+  TRAMP_DEBUG("trampoline_exclude %016lx", (unsigned long) trampoline_exclude);
+  TRAMP_DEBUG("thread_info->flags %08x", current_thread_info()->flags);
 
   if (ip(regs) == trampoline_exclude) {
     TRAMP_DEBUG("Ignoring call from excluded address");
@@ -1123,12 +1223,12 @@ tramp_stack_find_regs32(unsigned long bx, unsigned long cx,
 
   /* Is one of our saved offsets good? */
   for( i = 0; i < TRAMP_PRESAVED_OFF32; i++ ) {
-    regs = (void *)(stack + tramp_offset[i]);
-    if( tramp_offset[i] == 0 )
+    regs = (void *)(stack + tramp_offset32[i]);
+    if( tramp_offset32[i] == 0 )
       break;
     if( memcmp(&regs->cx, regs4, 4 * sizeof(regs4[0])) == 0 &&
         regs->bx == bx && regs->bp == bp ) {
-      TRAMP_DEBUG("%s: reuse offset[%d] = %d", __func__, i, tramp_offset[i]);
+      TRAMP_DEBUG("%s: reuse offset[%d] = %d", __func__, i, tramp_offset32[i]);
       return regs;
     }
   }
@@ -1138,7 +1238,7 @@ tramp_stack_find_regs32(unsigned long bx, unsigned long cx,
     if( memcmp(&regs->cx, regs4, 4 * sizeof(regs4[0])) == 0 &&
         regs->bx == bx && regs->bp == bp ) {
       if( i < TRAMP_PRESAVED_OFF32 ) {
-        tramp_offset[i] = off;
+        tramp_offset32[i] = off;
         TRAMP_DEBUG("%s: offset[%d] = %d", __func__, i, off);
       }
       else {
@@ -1220,6 +1320,7 @@ efab_linux_trampoline_handler_close32(unsigned long bx, unsigned long cx,
   TRAMP_DEBUG("  flags %016lx", flags(regs)); 
   TRAMP_DEBUG("  sp %016lx", sp(regs));
   TRAMP_DEBUG("  ss  %016lx",regs->ss);
+  TRAMP_DEBUG("trampoline_exclude %016lx", (unsigned long) trampoline_exclude);
 
   if (ip(regs) == trampoline_exclude) {
     TRAMP_DEBUG("Ignoring call from excluded address");

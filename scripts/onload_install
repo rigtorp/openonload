@@ -423,6 +423,9 @@ install_kernel_modules() {
   install_f linux_cplane/Module.symvers "$did/onload_cplane.symvers"
   install_f linux_onload/Module.symvers "$did/onload.symvers"
   install_f linux_affinity/Module.symvers "$did/sfc_affinity.symvers"
+  # Install driver headers
+  install_f linux_net/driverlink_api.h "$did/driverlink_api.h"
+  install_f linux_net/filter.h "$did/filter.h"
 }
 
 
@@ -448,9 +451,8 @@ install_modprobe_conf() {
     rhel4_modprobe_fixup
   fi
 
-  if [ -d "$i_etc/depmod.d" ]; then
-    install_f onload_misc/onload_depmod.conf "$i_etc/depmod.d/onload.conf"
-  fi
+  try mkdir -p "$i_etc/depmod.d"
+  install_f onload_misc/onload_depmod.conf "$i_etc/depmod.d/onload.conf"
 }
 
 

@@ -65,6 +65,32 @@ ci_inline int oo_open(ci_fd_t* out, enum oo_device_type dev_type, int flags) {
   return 0;
 }
 
+
+int ef_onload_handle_move_and_do_cloexec(ef_driver_handle* pfd, int do_cloexec)
+{
+  int fd;
+
+  if( do_cloexec )
+    fd = oo_fcntl_dupfd_cloexec(*pfd, CITP_OPTS.fd_base);
+  else
+    fd = ci_sys_fcntl(*pfd, F_DUPFD, CITP_OPTS.fd_base);
+
+  /* If we've successfully done the dup then we've also set CLOEXEC if
+   * needed on the new fd, so we're done.
+   */
+  if( fd >= 0 ) {
+    ci_tcp_helper_close_no_trampoline(*pfd);
+    *pfd = fd;
+    return 0;
+  }
+  else {
+    LOG_NV(ci_log("%s: Failed to move fd from %d, rc %d",
+                  __func__, *pfd, fd));
+  }
+
+  return fd;
+}
+
 int ef_onload_driver_open(ef_driver_handle* pfd,
                           enum oo_device_type dev_type,
                           int do_cloexec)
@@ -72,7 +98,6 @@ int ef_onload_driver_open(ef_driver_handle* pfd,
   int rc;
   int flags = 0;
   int saved_errno = errno;
-  int fd;
 
 #ifdef O_CLOEXEC
   if( do_cloexec )
@@ -107,25 +132,9 @@ int ef_onload_driver_open(ef_driver_handle* pfd,
    * we treat failure to shift the fd as acceptable, and just retain the old
    * one.
    */
-  if( *pfd < CITP_OPTS.fd_base ) {
-    if( do_cloexec )
-      fd = oo_fcntl_dupfd_cloexec(*pfd, CITP_OPTS.fd_base);
-    else
-      fd = ci_sys_fcntl(*pfd, F_DUPFD, CITP_OPTS.fd_base);
-
-    /* If we've successfully done the dup then we've also set CLOEXEC if
-     * needed on the new fd, so we're done.
-     */
-    if( fd >= 0 ) {
-      ci_tcp_helper_close_no_trampoline(*pfd);
-      *pfd = fd;
+  if( *pfd < CITP_OPTS.fd_base )
+    if( ef_onload_handle_move_and_do_cloexec(pfd, do_cloexec) == 0 )
       return 0;
-    }
-    else {
-      LOG_NV(ci_log("%s: Failed to move fd from %d, rc %d",
-                    __func__, *pfd, fd));
-    }
-  }
       
   if( do_cloexec ) {
 #if defined(O_CLOEXEC)

@@ -7211,7 +7211,11 @@
 #define          MC_CMD_PARSER_DISP_RW_IN_RX_DICPU  0x0
 /* enum: TX dispatcher CPU */
 #define          MC_CMD_PARSER_DISP_RW_IN_TX_DICPU  0x1
-/* enum: Lookup engine (with original metadata format) */
+/* enum: Lookup engine (with original metadata format). Deprecated; used only
+ * by cmdclient as a fallback for very old Huntington firmware, and not
+ * supported in firmware beyond v6.4.0.1005. Use LUE_VERSIONED_METADATA
+ * instead.
+ */
 #define          MC_CMD_PARSER_DISP_RW_IN_LUE  0x2
 /* enum: Lookup engine (with requested metadata format) */
 #define          MC_CMD_PARSER_DISP_RW_IN_LUE_VERSIONED_METADATA  0x3

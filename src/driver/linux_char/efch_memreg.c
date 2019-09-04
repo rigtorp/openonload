@@ -231,7 +231,7 @@ memreg_rm_alloc(ci_resource_alloc_t* alloc_,
   down_read(&current->mm->mmap_sem);
   for (mr->n_pages = 0; mr->n_pages < max_pages; mr->n_pages += rc) {
     rc = get_user_pages(first_page + mr->n_pages * PAGE_SIZE,
-                        max_pages - mr->n_pages, 1, 0,
+                        max_pages - mr->n_pages, FOLL_WRITE,
                         mr->pages + mr->n_pages, NULL);
     if (rc <= 0) {
       EFCH_ERR("%s: ERROR: get_user_pages(%d) returned %d",

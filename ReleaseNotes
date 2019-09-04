@@ -1,3 +1,31 @@
+OpenOnload-201606-u1.2
+======================
+
+This is a minor update release to OpenOnload-201606-u1.1 containing a
+number of important bug fixes, an updated net driver, and support for
+Linux 4.9 and 4.10 kernels.
+
+Please see the ChangeLog for a list of bugs fixed.
+
+The Release Notes for OpenOnload-201606-u1.1, which includes a brief
+summary of new features and known limitations, are included below.
+For more details see the TCPDirect User Guide and Onload User Guide.
+
+Linux distribution support
+--------------------------
+
+This package is supported on:
+- Red Hat Enterprise Linux 6.7 - 6.8
+- Red Hat Enterprise Linux 7.1 - 7.3
+- SuSE Linux Enterprise Server 11 sp4
+- SuSE Linux Enterprise Server 12 sp1 and sp2
+- Canonical Ubuntu Server LTS 14.04, 16.04
+- Canonical Ubuntu Server 16.10
+- Debian 7 "Wheezy"
+- Debian 8 "Jessie"
+- Linux kernels 2.6.32 - 4.10
+
+
 OpenOnload-201606-u1.1
 ======================
 

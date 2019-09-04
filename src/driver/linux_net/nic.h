@@ -630,11 +630,13 @@ size_t efx_ptp_describe_stats(struct efx_nic *efx, u8 *strings);
 size_t efx_ptp_update_stats(struct efx_nic *efx, u64 *stats);
 void efx_time_sync_event(struct efx_channel *channel, efx_qword_t *ev);
 void __efx_rx_skb_attach_timestamp(struct efx_channel *channel,
-				   struct sk_buff *skb);
+				   struct sk_buff *skb,
+				   const u8 *prefix);
 static inline void efx_rx_skb_attach_timestamp(struct efx_channel *channel,
-					       struct sk_buff *skb)
+					       struct sk_buff *skb,
+					       const u8 *prefix)
 {
-	__efx_rx_skb_attach_timestamp(channel, skb);
+	__efx_rx_skb_attach_timestamp(channel, skb, prefix);
 }
 void efx_ptp_start_datapath(struct efx_nic *efx);
 void efx_ptp_stop_datapath(struct efx_nic *efx);
@@ -654,6 +656,10 @@ static inline int efx_ptp_get_ts_config(struct efx_nic *efx, struct ifreq *ifr) 
 static inline int efx_ptp_get_ts_info(struct efx_nic *efx,
 				      struct ethtool_ts_info *ts_info)
 { return -EOPNOTSUPP; }
+static inline int efx_ptp_get_attributes(struct efx_nic *efx)
+{ return 0; }
+static inline bool efx_ptp_uses_separate_channel(struct efx_nic *efx)
+{ return false; }
 static inline bool efx_ptp_is_ptp_tx(struct efx_nic *efx, struct sk_buff *skb) { return false; }
 static inline int efx_ptp_tx(struct efx_nic *efx, struct sk_buff *skb) { return NETDEV_TX_OK; }
 static inline void efx_ptp_event(struct efx_nic *efx, efx_qword_t *ev) {}
@@ -662,7 +668,8 @@ static inline size_t efx_ptp_describe_stats(struct efx_nic *efx, u8 *strings)
 static inline size_t efx_ptp_update_stats(struct efx_nic *efx, u64 *stats)
 { return 0; }
 static inline void efx_rx_skb_attach_timestamp(struct efx_channel *channel,
-					       struct sk_buff *skb) {}
+					       struct sk_buff *skb,
+					       const u8 *prefix) {}
 static inline void efx_time_sync_event(struct efx_channel *channel,
 				       efx_qword_t *ev) {}
 static inline void efx_ptp_start_datapath(struct efx_nic *efx) {}

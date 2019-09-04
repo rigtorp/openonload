@@ -1,3 +1,22 @@
+openonload-201606-u1.2
+----------------------
+
+Update sfc net driver to v4.10.4.1005
+
+Support for recent Linux kernel versions (4.9, 4.10)
+
+SF-117768-KI/bug65337: ignore changes when time jumps forward during CPU speed estimate
+SF-117352-KI/bug65469: avoid spurious retransmits when ods_complete() called after ACK received
+SF-117777-KI/bug66777: prevent potential crashes with concurrent UDP receive-queue access.
+SF-117771-KI/bug67072: fix race condition causing potential deadlock in oo_rwlock_lock_write()
+SF-117796-KI/bug67325: prevent kernel panic if NIC reset occurs for partially-initialised Onload stack
+SF-117813-KI/bug68405: fix MCDI TX errors with large sends on lossy connections with TCPDirect
+SF-117770-KI/bug68763: send fast retransmits in response to duplicate acknowledgements in TCPDirect
+SF-117704-KI/bug68933: fix close-trampolining on 4.6 and later kernels
+SF-117774-KI/bug69206: detect LACP bond active slaves correctly on recent kernels
+bug64298: Respect EF_ONLOAD_FD_BASE for re-probed netifs
+
+
 openonload-201606-u1.1
 ----------------------
 

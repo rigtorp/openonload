@@ -38,6 +38,10 @@ extern int ef_onload_driver_open(ef_driver_handle* nic_out,
                                  enum oo_device_type dev_type,
                                  int do_cloexec) CI_HF;
 
+/*! Move a driver handle to a valid location, setting O_CLOEXEC if needed */
+int ef_onload_handle_move_and_do_cloexec(ef_driver_handle* pfd,
+                                         int do_cloexec) CI_HF;
+
 /*! Close a driver handle. */
 ci_inline int
 ef_onload_driver_close(ef_driver_handle nic)

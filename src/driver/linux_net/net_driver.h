@@ -82,7 +82,7 @@
  *
  **************************************************************************/
 
-#define EFX_DRIVER_VERSION	"4.10.0.1011"
+#define EFX_DRIVER_VERSION	"4.10.4.1005"
 
 #ifdef DEBUG
 #define EFX_BUG_ON_PARANOID(x) BUG_ON(x)
@@ -687,14 +687,6 @@ struct efx_sarfs_state {
 };
 #endif
 
-#ifdef EFX_USE_IRQ_NOTIFIERS
-struct efx_irq_affinity_notify {
-	struct irq_affinity_notify notifier;
-	struct efx_nic *efx;
-	int channel;
-};
-#endif
-
 #if defined(EFX_NOT_UPSTREAM) && defined(EFX_WITH_VMWARE_NETQ)
 /* VMware netqueue use flags */
 #define NETQ_USE_DEFAULT	(0U)
@@ -771,8 +763,10 @@ struct efx_channel {
 	unsigned int irq_moderation_us;
 	struct net_device *napi_dev;
 	struct napi_struct napi_str;
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 #ifdef CONFIG_NET_RX_BUSY_POLL
 	unsigned long busy_poll_state;
+#endif
 #endif
 	struct efx_special_buffer eventq;
 	unsigned int eventq_mask;
@@ -840,8 +834,16 @@ struct efx_channel {
 	cpumask_var_t available_cpus;
 #endif
 	int irq_mem_node;
+
+#ifdef EFX_USE_IRQ_NOTIFIERS
+	struct {
+		struct irq_affinity_notify notifier;
+		struct completion complete;
+	} irq_affinity;
+#endif
 };
 
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 #ifdef CONFIG_NET_RX_BUSY_POLL
 enum efx_channel_busy_poll_state {
 	EFX_CHANNEL_STATE_IDLE = 0,
@@ -965,6 +967,7 @@ static inline bool efx_channel_disable(struct efx_channel *channel)
 	return true;
 }
 #endif /* CONFIG_NET_RX_BUSY_POLL */
+#endif /* EFX_WANT_DRIVER_BUSY_POLL */
 
 /**
  * struct efx_msi_context - Context for each MSI
@@ -999,7 +1002,7 @@ struct efx_channel_type {
 	int (*pre_probe)(struct efx_channel *);
 	void (*post_remove)(struct efx_channel *);
 	void (*get_name)(struct efx_channel *, char *buf, size_t len);
-	struct efx_channel *(*copy)(const struct efx_channel *);
+	struct efx_channel *(*copy)(struct efx_channel *);
 	bool (*receive_skb)(struct efx_channel *, struct sk_buff *);
 	bool keep_eventq;
 };

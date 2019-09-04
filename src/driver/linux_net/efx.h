@@ -41,12 +41,6 @@ void efx_netpoll(struct net_device *net_dev);
 #endif
 int efx_net_open(struct net_device *net_dev);
 int efx_net_stop(struct net_device *net_dev);
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_USE_NETDEV_STATS64)
-struct rtnl_link_stats64 *efx_net_stats(struct net_device *net_dev,
-					struct rtnl_link_stats64 *stats);
-#else
-struct net_device_stats *efx_net_stats(struct net_device *net_dev);
-#endif
 void efx_watchdog(struct net_device *net_dev);
 int efx_change_mtu(struct net_device *net_dev, int new_mtu);
 int efx_set_mac_address(struct net_device *net_dev, void *data);

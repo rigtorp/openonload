@@ -214,10 +214,38 @@ static inline int iommu_unmap_my(struct iommu_domain *domain,
 #  define NOPAGE_SIGBUS (NULL)
 #endif
 
+#ifndef FOLL_WRITE
+#define FOLL_WRITE	0x01
+#endif
+
+#ifndef FOLL_FORCE
+#define FOLL_FORCE	0x10
+#endif
+
+static inline long
+get_user_pages_onload_compat(unsigned long start, unsigned long nr_pages,
+			     unsigned int gup_flags, struct page **pages,
+			     struct vm_area_struct **vmas)
+{
+  return get_user_pages(
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,6,0)
-#define get_user_pages(start, nr_pages, write, force, pages, vmas)  \
-    get_user_pages(current, current->mm,                            \
-                   start, nr_pages, write, force, pages, vmas)
+		        current, current->mm,
+#endif
+			start, nr_pages,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,9,0)
+			gup_flags & FOLL_WRITE, gup_flags & FOLL_FORCE,
+#else
+			gup_flags,
+#endif
+			pages, vmas);
+}
+#define get_user_pages get_user_pages_onload_compat
+
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
+#define VM_FAULT_ADDRESS(_vmf) (_vmf)->address
+#else
+#define VM_FAULT_ADDRESS(_vmf) (unsigned long)(_vmf)->virtual_address
 #endif
 
 #endif /* DRIVER_LINUX_RESOURCE_KERNEL_COMPAT_H */

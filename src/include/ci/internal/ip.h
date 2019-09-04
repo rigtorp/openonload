@@ -3067,7 +3067,7 @@ ci_inline ci_ip_pkt_fmt* ci_udp_recv_q_get(ci_netif* ni,
      * this pkt is already consumed, the next one must be OK to
      * receive.
      */
-    q->extract = pkt->udp_rx_next;
+    q->extract = OO_ACCESS_ONCE(pkt->udp_rx_next);
     pkt = PKT_CHK_NNL(ni, q->extract);
     ci_assert( !(pkt->rx_flags & CI_PKT_RX_FLAG_RECV_Q_CONSUMED) );
   }
@@ -3084,6 +3084,10 @@ ci_inline void ci_udp_recv_q_deliver(ci_netif* ni, ci_udp_recv_q* q,
 ci_inline ci_ip_pkt_fmt* ci_udp_recv_q_next(ci_netif* ni,
                                             ci_ip_pkt_fmt* pkt)
 {
+  /* This function is called without the stack lock, and so we had better be
+   * certain that the packet is not going to be reaped under our feet. */
+  ci_assert_nflags(pkt->rx_flags, CI_PKT_RX_FLAG_RECV_Q_CONSUMED);
+
   if( OO_PP_IS_NULL(pkt->udp_rx_next) )
     return NULL;
   return PKT_CHK_NNL(ni, pkt->udp_rx_next);

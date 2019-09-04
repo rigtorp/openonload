@@ -518,46 +518,155 @@ static int ci_bonding_get_slaves(char *bond_name, ci_dllist *slaves)
 
 struct ci_read_proc_net_bonding_state {
   char current_slave[IFNAMSIZ];
-  int agg_id;
+  int bond_agg_id;
+  int slave_agg_id;
+  int actor_key;
+  int port_key;
+  int found;
 };
 
+#define PROC_NET_BONDING_FOUND_BOND_AGG_ID 0x1
+#define PROC_NET_BONDING_FOUND_ACTOR_KEY 0x2
+#define PROC_NET_BONDING_FOUND_SLAVE_NAME 0x4
+#define PROC_NET_BONDING_FOUND_SLAVE_AGG_ID 0x8
+#define PROC_NET_BONDING_FOUND_PORT_KEY 0x10
 
-static void 
+static void
 ci_bonding_get_lacp_active_slaves_entry_fn(ci_dllist* active_slaves,
-                                           char* line, int line_len, 
+                                           char* line, int line_len,
                                            void* arg)
 {
-  int n, agg_id;
+  int n, agg_id, actor_key, port_key;
   char slave_name[IFNAMSIZ];
   struct ci_bonding_ifname *ifname;
-  struct ci_read_proc_net_bonding_state* state = 
+  struct ci_read_proc_net_bonding_state* state =
     (struct ci_read_proc_net_bonding_state*)arg;
 
   n = sscanf(line, " Aggregator ID: %d", &agg_id);
 
   if( n == 1 ) {
-    if( state->agg_id == -1 )
-      state->agg_id = agg_id;
+    if( !(state->found & PROC_NET_BONDING_FOUND_BOND_AGG_ID) ) {
+      /* First aggregator ID found must be the one for the bond.  Store it */
+      state->bond_agg_id = agg_id;
+      state->found |= PROC_NET_BONDING_FOUND_BOND_AGG_ID;
+    }
     else {
-      if( state->current_slave[0] != '\0' ) {
-        if( state->agg_id == agg_id ) {
-          ifname = kmalloc(sizeof(struct ci_bonding_ifname), GFP_KERNEL);
-          if( ifname != NULL ) {
-            strcpy(ifname->ifname, state->current_slave);
-            ci_dllist_push(active_slaves, &ifname->list_link);
-          }
-        }
-        state->current_slave[0] = '\0';
-      }
-      else {
-        CP_DBG_BOND(ci_log("Aggregator ID found without known slave"));
+      /* Subsequent aggregator IDs found must be the one for the slave.
+       * Compare to the bond's one
+       */
+      state->slave_agg_id = agg_id;
+      state->found |= PROC_NET_BONDING_FOUND_SLAVE_AGG_ID;
+
+      if( !(state->found & PROC_NET_BONDING_FOUND_SLAVE_NAME) ) {
+        /* We've found "Aggregator ID" outside of a "Slave Interface" block */
+        CP_DBG_BOND(ci_log("Aggregator ID found without known slave %x",
+                           state->found));
       }
     }
   }
   else {
-    n = sscanf(line, "Slave Interface: %s", slave_name);
-    if( n == 1 )
-      strcpy(state->current_slave, slave_name);
+    /* Global actor key, store to compare to slave's port key */
+    n = sscanf(line, " Actor Key: %d", &actor_key);
+    if( n == 1 ) {
+      state->actor_key = actor_key;
+      state->found |= PROC_NET_BONDING_FOUND_ACTOR_KEY;
+    }
+    else {
+      /* Start of a new "Slave Interface" block, remember the name of
+       * this slave.
+       */
+      n = sscanf(line, "Slave Interface: %s", slave_name);
+      if( n == 1 ) {
+        /* Before we start looking at new slave, first consider the
+         * old one.  If we've found everything but the port key that
+         * suggests we're on an older Linux that doesn't include that
+         * information.  In that case we rely on the aggregator ID
+         * changing for inactive slaves so only compare that.
+         *
+         * For the last slave we handle this case in the caller
+         * (ci_bonding_get_lacp_active_slave())
+         */
+        if( state->found == (PROC_NET_BONDING_FOUND_BOND_AGG_ID |
+                             PROC_NET_BONDING_FOUND_ACTOR_KEY |
+                             PROC_NET_BONDING_FOUND_SLAVE_NAME |
+                             PROC_NET_BONDING_FOUND_SLAVE_AGG_ID) ) {
+          if( state->bond_agg_id == state->slave_agg_id ) {
+            ifname = kmalloc(sizeof(struct ci_bonding_ifname), GFP_KERNEL);
+            if( ifname != NULL ) {
+              ci_assert_lt(strlen(state->current_slave), IFNAMSIZ);
+              strncpy(ifname->ifname, state->current_slave, IFNAMSIZ);
+              ifname->ifname[IFNAMSIZ - 1] = '\0';
+              ci_dllist_push(active_slaves, &ifname->list_link);
+            }
+          }
+        }
+
+        /* Now store the new state */
+        ci_assert_lt(strlen(slave_name), IFNAMSIZ);
+        strncpy(state->current_slave, slave_name, IFNAMSIZ);
+        state->current_slave[IFNAMSIZ - 1] = '\0';
+        state->found |= PROC_NET_BONDING_FOUND_SLAVE_NAME;
+
+        if( (state->found & (PROC_NET_BONDING_FOUND_BOND_AGG_ID |
+                             PROC_NET_BONDING_FOUND_ACTOR_KEY )) !=
+            (PROC_NET_BONDING_FOUND_BOND_AGG_ID |
+             PROC_NET_BONDING_FOUND_ACTOR_KEY ) ) {
+          CP_DBG_BOND(ci_log("Slave found without aggregator and actor keys %x",
+                             state->found));
+        }
+
+        /* New slave name implies any state we've found for the
+         * slave-specific bits is now invalid as it refers to an earlier
+         * slave.
+         */
+        state->found &= (PROC_NET_BONDING_FOUND_BOND_AGG_ID |
+                         PROC_NET_BONDING_FOUND_ACTOR_KEY |
+                         PROC_NET_BONDING_FOUND_SLAVE_NAME);
+      }
+      else {
+        /* Slave's port key, store to compare to global actor key */
+        n = sscanf(line, " port key: %d", &port_key);
+        if( n == 1 ) {
+          state->port_key = port_key;
+          state->found |= PROC_NET_BONDING_FOUND_PORT_KEY;
+
+          if( (state->found & (PROC_NET_BONDING_FOUND_BOND_AGG_ID |
+                               PROC_NET_BONDING_FOUND_ACTOR_KEY |
+                               PROC_NET_BONDING_FOUND_SLAVE_NAME)) !=
+              (PROC_NET_BONDING_FOUND_BOND_AGG_ID |
+               PROC_NET_BONDING_FOUND_ACTOR_KEY |
+               PROC_NET_BONDING_FOUND_SLAVE_NAME) ) {
+            CP_DBG_BOND
+              (ci_log("Port key found without aggregator, actor or slave %x",
+                      state->found));
+          }
+        }
+      }
+    }
+  }
+
+  if( state->found == (PROC_NET_BONDING_FOUND_BOND_AGG_ID |
+                       PROC_NET_BONDING_FOUND_ACTOR_KEY |
+                       PROC_NET_BONDING_FOUND_SLAVE_NAME |
+                       PROC_NET_BONDING_FOUND_SLAVE_AGG_ID |
+                       PROC_NET_BONDING_FOUND_PORT_KEY) ) {
+    /* Got the whole set, now need to check if this slave is part of
+     * the active aggregator
+     */
+    if( state->bond_agg_id == state->slave_agg_id &&
+        state->actor_key == state->port_key ) {
+      ifname = kmalloc(sizeof(struct ci_bonding_ifname), GFP_KERNEL);
+      if( ifname != NULL ) {
+        ci_assert_lt(strlen(state->current_slave), IFNAMSIZ);
+        strncpy(ifname->ifname, state->current_slave, IFNAMSIZ);
+        ifname->ifname[IFNAMSIZ - 1] = '\0';
+        ci_dllist_push(active_slaves, &ifname->list_link);
+      }
+    }
+
+    /* Reset state while we go looking for the next matching slave. */
+    state->found &= (PROC_NET_BONDING_FOUND_BOND_AGG_ID |
+                     PROC_NET_BONDING_FOUND_ACTOR_KEY);
   }
 }
 
@@ -569,8 +678,10 @@ static int ci_bonding_get_lacp_active_slave(char* bond_name, char* slave_name)
   struct ci_read_proc_net_bonding_state state;
   ci_dllist active_slaves;
 
-  state.agg_id = -1;
-  state.current_slave[0] = '\0';
+  ci_assert_lt(strlen(slave_name), IFNAMSIZ);
+
+  state.found = 0;
+
   ci_dllist_init(&active_slaves);
 
   len = strlen(bond_name) + PROC_NET_BONDING_STRLEN + 1;
@@ -590,13 +701,29 @@ static int ci_bonding_get_lacp_active_slave(char* bond_name, char* slave_name)
   rc = 0;
   while( ci_dllist_not_empty(&active_slaves) ) {
     ci_dllink *link = ci_dllist_pop(&active_slaves);
-    struct ci_bonding_ifname* ifname = 
+    struct ci_bonding_ifname* ifname =
       CI_CONTAINER(struct ci_bonding_ifname, list_link, link);
-    if( strcmp(slave_name, ifname->ifname) == 0 )
+    if( strncmp(slave_name, ifname->ifname, IFNAMSIZ) == 0 )
       rc = 1;
     kfree(ifname);
   }
-  
+
+  /* Because on some Linux's we need to match the port key, and on
+   * others we don't, we don't know if the last slave in
+   * /proc/net/bonding/bond0 wasn't included because the port key
+   * didn't match, or wasn't included because the file didn't have a
+   * port key in it.  Check that here.
+   */
+  if( rc == 0 && state.found == (PROC_NET_BONDING_FOUND_BOND_AGG_ID |
+                                 PROC_NET_BONDING_FOUND_ACTOR_KEY |
+                                 PROC_NET_BONDING_FOUND_SLAVE_NAME |
+                                 PROC_NET_BONDING_FOUND_SLAVE_AGG_ID) ) {
+    /* No port key in file, but everything else found, so just check agg id */
+    if( (state.bond_agg_id == state.slave_agg_id) &&
+        (strncmp(slave_name, state.current_slave, IFNAMSIZ)) == 0 )
+      rc = 1;
+  }
+
   return rc;
 }
 

@@ -121,7 +121,7 @@ oo_dshm_register_impl(ci_int32 shm_class, ci_user_ptr_t user_addr,
   /* Take references to the pages from the user's buffer. */
   down_read(&current->mm->mmap_sem);
   rc = get_user_pages((unsigned long) CI_USER_PTR_GET(user_addr),
-                      buffer->num_pages, 0 /* read-only */, 0 /* no force */,
+                      buffer->num_pages, 0 /* read-only, no force */,
                       buffer->pages, NULL);
   up_read(&current->mm->mmap_sem);
 

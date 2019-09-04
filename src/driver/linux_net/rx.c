@@ -772,7 +772,8 @@ efx_rx_packet_gro(struct efx_channel *channel, struct efx_rx_buffer *rx_buf,
 
 	skb_mark_napi_id(skb, &channel->napi_str);
 
-	efx_rx_skb_attach_timestamp(channel, skb);
+	efx_rx_skb_attach_timestamp(channel, skb,
+				    eh - efx->type->rx_prefix_size);
 
 #ifdef CONFIG_SFC_TRACING
 	trace_sfc_receive(skb, true, head_buf->flags & EFX_RX_BUF_VLAN_XTAG,
@@ -1004,7 +1005,8 @@ static void efx_rx_deliver(struct efx_channel *channel, u8 *eh,
 #endif
 	}
 
-	efx_rx_skb_attach_timestamp(channel, skb);
+	efx_rx_skb_attach_timestamp(channel, skb,
+				    eh - channel->efx->type->rx_prefix_size);
 
 #if defined(EFX_NOT_UPSTREAM) && defined(EFX_WITH_VMWARE_NETQ)
 #if EFX_VMKLNX_DDI_VERSION >= EFX_VMKLNX_DDI_VERSION_ESX_5_5
@@ -1149,7 +1151,9 @@ void __efx_rx_packet(struct efx_channel *channel)
 #endif
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_USE_GRO)
 	if ((rx_buf->flags & EFX_RX_PKT_TCP) && !channel->type->receive_skb &&
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 	    !efx_channel_busy_polling(channel) &&
+#endif
 	    (!efx_should_copy_rx_packet(rx_buf) || napi->gro_list))
 		efx_rx_packet_gro(channel, rx_buf, channel->rx_pkt_n_frags, eh);
 	else
@@ -1745,6 +1749,7 @@ efx_ssr_merge_page(struct efx_ssr_state *st, struct efx_ssr_conn *c,
 {
 	struct efx_rx_buffer *rx_buf = &c->next_buf;
 	struct efx_channel *channel;
+	size_t rx_prefix_size;
 	char *eh = c->next_eh;
 
 	if (likely(c->skb)) {
@@ -1766,7 +1771,10 @@ efx_ssr_merge_page(struct efx_ssr_state *st, struct efx_ssr_conn *c,
 		if (unlikely(c->skb == NULL))
 			return 0;
 
-		efx_rx_skb_attach_timestamp(channel, c->skb);
+		rx_prefix_size = channel->efx->type->rx_prefix_size;
+
+		efx_rx_skb_attach_timestamp(channel, c->skb,
+					    eh - rx_prefix_size);
 
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_RXHASH_SUPPORT)
 		if (st->efx->net_dev->features & NETIF_F_RXHASH)

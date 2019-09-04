@@ -1,6 +1,6 @@
 Solarflare 4.X Linux network driver
 ===================================
-Version:  4.10.0.1012
+Version:  4.10.3.1003
 
 
 Overview
@@ -326,32 +326,74 @@ Issue 50868:
 Changelog
 ---------
 
-### v4.10.0.1012 -- GA release for overlays support on SFN8XXX adapters.
+### v4.10.4.1000 -- GA release for ESXi adding support for SFN8542 adapters.
+[General VMware ESXi 5.5, 6.0 and 6.5 support]
+ ~ GA support for ESXi and SFN8542 Solarflare adapters.
+ ~ Support VXLAN acceleration for ESXi.
 
+
+### v4.10.0.1025 -- GA release for overlays support on SFN8XXX adapters.
 [General changes]
- ~ Overlays support now declared as fully supported (was a beta feature).
+ ~ Improve error message when a TX queue times out to give more information.
+
+Issue 66936:
+ ~ Ensure the packet prefix is available to timestamping.
+ ~ Without this patch invalid memory accesses to addresses ending 0xfb
+   will be seen in __efx_rx_skb_attach_timestamp() if GRO or LRO is being used.
+
+Issue 66058:
+ ~ Clear napi_hash related state when copying channels.
+ ~ This is only seen on driver unload when >256 NAPI channels are being used
+   (across all adapters on the server; partly determined by the sfc module
+   parameter "rss_cpus").
+ ~ This has been seen to cause:
+    - general protection fault in efx_stop_all+0x38a/0x5a0.
+    - kernel NULL pointer dereference in napi_hash_add+0x59/0xc0.
+
+[Stratus ftServer support] - Note these issues only affect PCI hot-plug cases:
+Issue 67007:
+ ~ Fix race between efx_pci_remove_main() and efx_irq_notify().
+Issue 61922:
+ ~ Hold RTNL while we modify the CPU channel map.
+
+
+### v4.10.0.1011 -- Intermediate release as part of openonload-201606-u1
+[General changes]
+ ~ GA release of acceleration for overlay networks, VxLAN / NV-GRE / GENEVE
+   (previously beta)
  ~ Check MTU against minimum threshold.
  ~ Better detection of BIOS/kernel failing to provide addresses for PCI BARs.
 
+Issue 66869 (ESX only):
+ ~ Fix a race in the admin side of MCDI proxy authorization.
+ ~ The error message reported would be of the form:
+     efx_proxy_auth_handle_request: invalid req state 5 
+
 Issue 65427:
- ~ Report 4-tuple UDP hashing to ethtool, if it's enabled.
+ ~ Correctly report UDP RSS hashing mode as 2-tuple (address only) or 4-tuple
+   (address and port)  with "ethtool -n <intf> rx-flow-hash udp4"
 
 Issue 65511:
  ~ Avoid kernel warning from efx_ef10_ev_process() when the sfc.ko module
    parameter forward_fcs=1, as CRCs should be ignored in this case.
 
+Issue 65013:
+ ~ An interaction with the kernel stack can lead to no traffic being transmitted
+   if a very small (less than 68) MTU is set. The driver will now reject such
+   configurations as invalid.
+
 Issue 64919:
  ~ Fix crash seen in efx_pci_probe_main() when sf-boot pf-count was altered and
    the driver was reloaded.
 
-Issue 64574/65176:
- (SFN8XXX only) when using TX timestamps (e.g. with sfptpd running)
- ~ Fixes handling a merged TX timestamp (by the adapter).
- ~ Fixes handling xmit_more (from the kernel queuing discipline) with TX
-   timestamps.
- ~ Note the error message seen would be reported on the highest TX queue:
-     sfptpd: retrieved transmit timestamp but no packet
-     kernel: sfc 0000:82:00.1 sfc1: TX queue 4 spurious TX completion id 1a
+Issue 64574/65176 (SFN8XXX only):
+ ~ Packets with transmit timestamps with the xmit_more flag (set by the kernel
+   queuing discipline)  could be delayed before transmission, causing missing
+   packet reports from PTP daemons. In unusual cases this could lead to
+   TX watchdog timeouts.
+ ~ The sfptpd error message reported would be of the form:
+      sfptpd: retrieved transmit timestamp but no packet
+      kernel: sfc 0000:82:00.1 sfc1: TX queue 4 spurious TX completion id 1a
 
 
 ### v4.9.0.1016 -- GA release adding support for SFN8542 adapters.

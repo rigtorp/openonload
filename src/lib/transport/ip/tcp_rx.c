@@ -1071,7 +1071,8 @@ static void ci_tcp_rx_free_acked_bufs(ci_netif* netif, ci_tcp_state* ts,
 
   if( ci_ip_queue_is_empty(rtq) ) {
     ci_assert(ts->snd_delegated);
-    return;
+    ci_assert(SEQ_GE(tcp_snd_nxt(ts) + ts->snd_delegated, rxp->ack));
+    goto done;
   }
 
   while( 1 ) {
@@ -1118,8 +1119,9 @@ static void ci_tcp_rx_free_acked_bufs(ci_netif* netif, ci_tcp_state* ts,
     ci_tcp_wake(netif, ts, CI_SB_FLAG_WAKE_RX);
   }
 
+ done:
   ci_assert(!ci_ip_queue_is_empty(rtq) || SEQ_EQ(rxp->ack, tcp_snd_nxt(ts)) ||
-            ts-> snd_delegated != 0);
+            ts->snd_delegated != 0);
   tcp_snd_una(ts) = rxp->ack;
 
   /* Wake up TX if necessary */

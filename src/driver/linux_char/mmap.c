@@ -308,7 +308,7 @@ static struct page* vm_op_nopage(struct vm_area_struct* vma,
 static int vm_op_fault(struct vm_area_struct *vma, struct vm_fault *vmf) {
   struct page* ret;
 
-  ret = vm_op_nopage(vma, (long int)vmf->virtual_address, NULL);
+  ret = vm_op_nopage(vma, VM_FAULT_ADDRESS(vmf), NULL);
   vmf->page = ret;
   return (ret==NOPAGE_SIGBUS) ? VM_FAULT_SIGBUS : 0; 
 }

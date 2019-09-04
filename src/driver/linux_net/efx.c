@@ -446,6 +446,8 @@ static void efx_stop_all(struct efx_nic *efx);
 
 #ifdef EFX_USE_IRQ_NOTIFIERS
 static void efx_unregister_irq_notifiers(struct efx_nic *efx);
+static void efx_set_affinity_notifier(struct efx_channel *channel);
+static void efx_clear_affinity_notifier(struct efx_channel *channel);
 #endif
 
 #define EFX_ASSERT_RESET_SERIALISED(efx)		\
@@ -614,8 +616,10 @@ static int efx_poll(struct net_device *dev, int *budget_ret)
 	struct efx_nic *efx = channel->efx;
 	int spent;
 
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 	if (!efx_channel_lock_napi(channel))
 		return budget;
+#endif
 
 	netif_vdbg(efx, intr, efx->net_dev,
 		   "channel %d NAPI poll executing on CPU %d\n",
@@ -645,7 +649,9 @@ static int efx_poll(struct net_device *dev, int *budget_ret)
 		efx_nic_eventq_read_ack(channel);
 	}
 
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 	efx_channel_unlock_napi(channel);
+#endif
 #if !defined(EFX_USE_KCOMPAT) || !defined(EFX_HAVE_OLD_NAPI)
 	return spent;
 #else
@@ -734,7 +740,9 @@ void efx_start_eventq(struct efx_channel *channel)
 	channel->enabled = true;
 	smp_wmb();
 
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 	efx_channel_enable(channel);
+#endif
 	napi_enable(&channel->napi_str);
 	efx_nic_eventq_read_ack(channel);
 }
@@ -749,8 +757,10 @@ void efx_stop_eventq(struct efx_channel *channel)
 			"chan %d stop event queue\n", channel->channel);
 
 	napi_disable(&channel->napi_str);
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 	while (!efx_channel_disable(channel))
 		usleep_range(1000, 20000);
+#endif
 	channel->enabled = false;
 }
 
@@ -824,7 +834,7 @@ efx_alloc_channel(struct efx_nic *efx, int i, struct efx_channel *old_channel)
  * (but not resources) from an old channel structure.
  */
 static struct efx_channel *
-efx_copy_channel(const struct efx_channel *old_channel)
+efx_copy_channel(struct efx_channel *old_channel)
 {
 	struct efx_nic *efx = old_channel->efx;
 	struct efx_channel *channel;
@@ -836,9 +846,18 @@ efx_copy_channel(const struct efx_channel *old_channel)
 	if (!channel)
 		return NULL;
 
+#ifdef EFX_USE_IRQ_NOTIFIERS
+	efx_clear_affinity_notifier(old_channel);
+#endif
+
 	*channel = *old_channel;
 
 	channel->napi_dev = NULL;
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_NAPI_STRUCT_NAPI_ID)
+	INIT_HLIST_NODE(&channel->napi_str.napi_hash_node);
+	channel->napi_str.napi_id = 0;
+	channel->napi_str.state = 0;
+#endif
 	memset(&channel->eventq, 0, sizeof(channel->eventq));
 
 #if defined(EFX_NOT_UPSTREAM) && defined(EFX_USE_SFC_LRO)
@@ -857,6 +876,10 @@ efx_copy_channel(const struct efx_channel *old_channel)
 	rx_queue = &channel->rx_queue;
 	rx_queue->buffer = NULL;
 	memset(&rx_queue->rxd, 0, sizeof(rx_queue->rxd));
+
+#ifdef EFX_USE_IRQ_NOTIFIERS
+	efx_set_affinity_notifier(channel);
+#endif
 
 #ifdef EFX_TX_STEERING
 	if (unlikely(!zalloc_cpumask_var(&channel->available_cpus, GFP_KERNEL))) {
@@ -1340,6 +1363,9 @@ rollback:
 		channel = efx->channel[i];
 		efx->channel[i] = other_channel[i];
 		other_channel[i] = channel;
+#ifdef EFX_USE_IRQ_NOTIFIERS
+		efx_set_affinity_notifier(efx->channel[i]);
+#endif
 	}
 	goto out;
 }
@@ -2651,6 +2677,9 @@ static void efx_build_cpu_channel_map(struct efx_nic *efx)
 	size_t i, thresh;
 	int cpus = num_possible_cpus();
 
+	if (!efx->cpu_channel_map)
+		return;
+
 	cpu_channel_counts = kmalloc(sizeof(*cpu_channel_counts) * cpus,
 				     GFP_KERNEL);
 	if (!cpu_channel_counts)
@@ -2788,12 +2817,11 @@ static void efx_set_interrupt_affinity(struct efx_nic *efx)
 		channel->irq_mem_node = cpu_to_mem(cpu);
 	}
 
-	rtnl_unlock();
-
 #ifdef EFX_TX_STEERING
-	if (efx->cpu_channel_map)
-		efx_build_cpu_channel_map(efx);
+	efx_build_cpu_channel_map(efx);
 #endif
+
+	rtnl_unlock();
 
 out:
 	while (sets_allocd--)
@@ -2809,8 +2837,16 @@ static void efx_clear_interrupt_affinity(struct efx_nic *efx)
 		(void)irq_set_affinity_hint(channel->irq, NULL);
 #endif
 #ifdef EFX_TX_STEERING
-	kfree(efx->cpu_channel_map);
-	efx->cpu_channel_map = NULL;
+	{
+		int *map = efx->cpu_channel_map;
+
+		rtnl_lock();
+
+		efx->cpu_channel_map = NULL;
+		kfree(map);
+
+		rtnl_unlock();
+	}
 #endif
 }
 
@@ -2898,53 +2934,55 @@ static void efx_channel_reassign_irq(struct efx_channel *channel,
 
 static void efx_irq_release(struct kref *ref)
 {
-	struct efx_irq_affinity_notify *this =
-		container_of(ref, struct efx_irq_affinity_notify,
-			     notifier.kref);
+	struct efx_channel *channel =
+		container_of(ref, struct efx_channel, irq_affinity.notifier.kref);
 
-	kfree(this);
+	complete(&channel->irq_affinity.complete);
 }
 
-static void efx_irq_notify(struct irq_affinity_notify *this_,
+static void efx_irq_notify(struct irq_affinity_notify *this,
 			  const cpumask_t *mask)
 {
-	struct efx_irq_affinity_notify *this =
-		container_of(this_, struct efx_irq_affinity_notify, notifier);
-	struct efx_nic *efx = this->efx;
-	struct efx_channel *channel = efx_get_channel(efx, this->channel);
+	struct efx_channel *channel =
+		container_of(this, struct efx_channel, irq_affinity.notifier);
 
 	efx_channel_reassign_irq(channel, mask);
 
 #if defined(EFX_NOT_UPSTREAM) && defined(CONFIG_XPS)
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_NETIF_SET_XPS_QUEUE)
 	if (auto_config_xps)
-		efx_set_xps_queues(efx);
+		efx_set_xps_queues(channel->efx);
 #endif
 #endif
+}
+
+static void efx_set_affinity_notifier(struct efx_channel *channel)
+{
+	int rc;
+
+	init_completion(&channel->irq_affinity.complete);
+	channel->irq_affinity.notifier.notify = efx_irq_notify;
+	channel->irq_affinity.notifier.release = efx_irq_release;
+	rc = irq_set_affinity_notifier(channel->irq,
+				       &channel->irq_affinity.notifier);
+	if (rc)
+		netif_warn(channel->efx, probe, channel->efx->net_dev,
+			   "Failed to set irq notifier for IRQ %d",
+			   channel->irq);
+}
+
+static void efx_clear_affinity_notifier(struct efx_channel *channel)
+{
+	irq_set_affinity_notifier(channel->irq, NULL);
+	wait_for_completion(&channel->irq_affinity.complete);
 }
 
 static void efx_register_irq_notifiers(struct efx_nic *efx)
 {
 	struct efx_channel *channel;
-	int rc;
 
-	efx_for_each_channel(channel, efx) {
-		struct efx_irq_affinity_notify *notifier =
-			kmalloc(sizeof(*notifier), GFP_KERNEL);
-
-		notifier->notifier.notify = efx_irq_notify;
-		notifier->notifier.release = efx_irq_release;
-		notifier->efx = efx;
-		notifier->channel = channel->channel;
-		rc = irq_set_affinity_notifier(channel->irq,
-					       &notifier->notifier);
-		if (rc) {
-			netif_warn(channel->efx, probe, efx->net_dev,
-				   "Failed to set irq notifier for IRQ %d",
-				   channel->irq);
-			kfree(notifier);
-		}
-	}
+	efx_for_each_channel(channel, efx)
+		efx_set_affinity_notifier(channel);
 }
 
 static void efx_unregister_irq_notifiers(struct efx_nic *efx)
@@ -2952,7 +2990,7 @@ static void efx_unregister_irq_notifiers(struct efx_nic *efx)
 	struct efx_channel *channel;
 
 	efx_for_each_channel(channel, efx)
-		irq_set_affinity_notifier(channel->irq, NULL);
+		efx_clear_affinity_notifier(channel);
 }
 #endif
 
@@ -3733,7 +3771,6 @@ static int efx_init_napi_channel(struct efx_channel *channel)
 #endif
 	netif_napi_add(channel->napi_dev, &channel->napi_str,
 		       efx_poll, napi_weight);
-	napi_hash_add(&channel->napi_str);
 #if defined(EFX_NOT_UPSTREAM) && defined(EFX_USE_SFC_LRO)
 	{
 		int rc = efx_ssr_init(channel, efx);
@@ -3743,7 +3780,9 @@ static int efx_init_napi_channel(struct efx_channel *channel)
 		}
 	}
 #endif
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 	efx_channel_busy_poll_init(channel);
+#endif
 
 	return 0;
 }
@@ -3767,10 +3806,8 @@ static void efx_fini_napi_channel(struct efx_channel *channel)
 #if defined(EFX_NOT_UPSTREAM) && defined(EFX_USE_SFC_LRO)
 	efx_ssr_fini(channel);
 #endif
-	if (channel->napi_dev) {
+	if (channel->napi_dev)
 		netif_napi_del(&channel->napi_str);
-		napi_hash_del(&channel->napi_str);
-	}
 #if defined(EFX_USE_KCOMPAT) && defined(EFX_HAVE_OLD_NAPI)
 	if (channel->napi_dev) {
 		channel->napi_dev->priv = NULL;
@@ -3814,9 +3851,10 @@ void efx_pause_napi(struct efx_nic *efx)
 
 	efx_for_each_channel(channel, efx) {
 		napi_disable(&channel->napi_str);
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 		while (!efx_channel_lock_napi(channel))
 			msleep(1);
-
+#endif
 	}
 }
 
@@ -3831,7 +3869,9 @@ int efx_resume_napi(struct efx_nic *efx)
 	netif_dbg(efx, drv, efx->net_dev, "Resuming NAPI\n");
 
 	efx_for_each_channel(channel, efx) {
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 		efx_channel_unlock_napi(channel);
+#endif
 		napi_enable(&channel->napi_str);
 	}
 
@@ -3866,6 +3906,7 @@ void efx_netpoll(struct net_device *net_dev)
 
 #endif
 
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 #ifdef CONFIG_NET_RX_BUSY_POLL
 int efx_busy_poll(struct napi_struct *napi)
 {
@@ -3895,6 +3936,7 @@ int efx_busy_poll(struct napi_struct *napi)
 
 	return rx_packets;
 }
+#endif
 #endif
 
 /**************************************************************************
@@ -3961,11 +4003,14 @@ int efx_net_stop(struct net_device *net_dev)
 }
 
 /* Context: process, dev_base_lock or RTNL held, non-blocking. */
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_USE_NETDEV_STATS64)
-struct rtnl_link_stats64 *efx_net_stats(struct net_device *net_dev,
-					struct rtnl_link_stats64 *stats)
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_NETDEV_STATS64_VOID)
+static void efx_net_stats(struct net_device *net_dev,
+			  struct rtnl_link_stats64 *stats)
+#elif defined(EFX_USE_NETDEV_STATS64)
+static struct rtnl_link_stats64 *efx_net_stats(struct net_device *net_dev,
+					       struct rtnl_link_stats64 *stats)
 #else
-struct net_device_stats *efx_net_stats(struct net_device *net_dev)
+static struct net_device_stats *efx_net_stats(struct net_device *net_dev)
 #endif
 {
 	struct efx_nic *efx = netdev_priv(net_dev);
@@ -3980,8 +4025,10 @@ struct net_device_stats *efx_net_stats(struct net_device *net_dev)
 	efx->type->update_stats(efx, NULL, stats);
 	/* release stats_lock obtained in update_stats */
 	spin_unlock_bh(&efx->stats_lock);
+#if defined(EFX_USE_KCOMPAT) && !defined(EFX_HAVE_NETDEV_STATS64_VOID)
 
 	return stats;
+#endif
 }
 
 void efx_set_stats_period(struct efx_nic *efx, unsigned int period_ms)
@@ -4014,8 +4061,20 @@ void efx_watchdog(struct net_device *net_dev)
 			continue;
 
 		netif_info(efx, tx_err, efx->net_dev,
-			   "Channel %u: NAPI state 0x%lx\n", channel->channel,
-			   channel->napi_str.state);
+			   "Channel %u: %senabled Busy poll 0x%lx NAPI state 0x%lx Doorbell %sheld %scoalescing\n",
+			   channel->channel, (channel->enabled ? "" : "NOT "),
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
+#ifdef CONFIG_NET_RX_BUSY_POLL
+			   channel->busy_poll_state,
+#else
+			   (long unsigned int) 0xffff,
+#endif
+#else
+			   (long unsigned int) 0xffff,
+#endif
+			   channel->napi_str.state,
+			   (channel->holdoff_doorbell ? "" : "not "),
+			   (channel->tx_coalesce_doorbell ? "" : "not "));
 		efx_for_each_channel_tx_queue(tx_queue, channel)
 			netif_info(efx, tx_err, efx->net_dev,
 				   "Tx queue: insert %u, write %u, read %u\n",
@@ -6461,7 +6520,7 @@ const struct net_device_ops efx_netdev_ops = {
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller	= efx_netpoll,
 #endif
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_NDO_BUSY_POLL)
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_HAVE_NDO_BUSY_POLL)
 #ifdef CONFIG_NET_RX_BUSY_POLL
 	.ndo_busy_poll		= efx_busy_poll,
 #endif

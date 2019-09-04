@@ -406,6 +406,9 @@ int citp_netif_recreate_probed(ci_fd_t ul_sock_fd,
     goto fail2;
   }
 
+  if( rc < CITP_OPTS.fd_base )
+    ef_onload_handle_move_and_do_cloexec(&rc, 1);
+
   /* Restore the netif mmaps and user-level state */
   CI_TRY_RET(ci_netif_restore(ni, (ci_fd_t)rc, map_size));
 
