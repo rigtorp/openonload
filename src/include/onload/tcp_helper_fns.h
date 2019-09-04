@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -58,16 +58,20 @@ extern int tcp_helper_alloc_ul(ci_resource_onload_alloc_t* alloc,
                                int ifindices_len,
                                tcp_helper_resource_t** rs_out);
 
+#define NS_COMP_OOF_WAIT            1
+#define NS_COMP_DUMP_WAIT_NEW       2
+#define NS_COMP_DUMP_WAIT_ALWAYS    4
+extern int tcp_helper_get_ns_components(struct oo_cplane_handle** cplane,
+                                        struct oo_filter_ns**  filter_ns,
+                                        ci_uint32 flags);
+
+struct user_namespace;
+extern struct user_namespace* tcp_helper_get_user_ns(tcp_helper_resource_t*);
+
 extern int tcp_helper_rm_alloc(ci_resource_onload_alloc_t* alloc,
                                const ci_netif_config_opts* opts,
                                int ifindices_len, tcp_helper_cluster_t* thc,
                                tcp_helper_resource_t** rs_out);
-
-extern int
-tcp_helper_rm_alloc_proxy(ci_resource_onload_alloc_t* alloc,
-                          const ci_netif_config_opts* opts,
-                          int ifindices_len,
-                          tcp_helper_resource_t** rs_out);
 
 extern void tcp_helper_dtor(tcp_helper_resource_t* trs);
 
@@ -103,11 +107,13 @@ extern int efab_ioctl_get_ep(ci_private_t*, oo_sp,
                              tcp_helper_endpoint_t** ep_out);
 
 
-extern int efab_os_sock_callback(wait_queue_t *wait, unsigned mode, int sync,
-                                 void *key);
+extern int efab_os_sock_callback(wait_queue_entry_t *wait, unsigned mode,
+                                 int sync, void *key);
 
 extern void efab_os_wakeup_work(struct work_struct *data);
 
+extern int efab_tcp_helper_vi_stats_query(tcp_helper_resource_t*,
+                                                 unsigned int, void*, size_t, int);
 /* get a resource installed install_resource_into_priv, or return a
  negative error code (does not remove the resource from the priv) */
 ci_inline int
@@ -157,7 +163,7 @@ extern int efab_thr_get_inaccessible_stack_info(unsigned id,
 extern int efab_thr_can_access_stack(tcp_helper_resource_t* thr,
                                      int check_user);
 extern int efab_thr_user_can_access_stack(uid_t uid, uid_t euid,
-                                          ci_netif* ni);
+                                          tcp_helper_resource_t* thr);
 
 /*! Lookup a stack and grab a reference if found.  If [name] is not NULL,
  * search by name, else by [id]. 
@@ -176,7 +182,8 @@ extern int efab_thr_user_can_access_stack(uid_t uid, uid_t euid,
  * 
  * Caller is responsible for dropping the reference taken on success.
  */
-extern int efab_thr_table_lookup(const char* name, unsigned id, int flags,
+extern int efab_thr_table_lookup(const char* name, struct net* netns,
+                                 unsigned id, int flags,
                                  tcp_helper_resource_t** stack_out);
 
 
@@ -186,6 +193,9 @@ extern int tcp_helper_dump_stack(unsigned id, unsigned orphan_only,
 
 /*! Try to kill an orphan/zombie stack */
 extern int tcp_helper_kill_stack_by_id(unsigned id);
+
+extern int
+oo_version_check(const char* version, const char* uk_intf_ver, int debug_lib);
 
 ci_inline void
 efab_thr_ref(tcp_helper_resource_t *thr)
@@ -243,8 +253,6 @@ extern int efab_tcp_helper_listen_os_sock(ci_private_t *priv, void *p_backlog);
 extern int efab_tcp_helper_shutdown_os_sock (tcp_helper_endpoint_t* ep,
                                              ci_int32 how);
 
-extern int efab_tcp_helper_connect_os_sock (ci_private_t *priv, void *arg);
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,7,0)
 struct file *sock_alloc_file(struct socket *sock, int flags, void *unused);
 #endif
@@ -264,6 +272,9 @@ extern int efab_file_move_to_alien_stack(ci_private_t *priv,
                                          ci_netif *alien_ni,
                                          int drop_filter,
                                          oo_sp* new_sock_id);
+
+extern void
+tcp_helper_cluster_ref(tcp_helper_cluster_t* thc);
 
 extern void
 tcp_helper_cluster_release(tcp_helper_cluster_t* thc,

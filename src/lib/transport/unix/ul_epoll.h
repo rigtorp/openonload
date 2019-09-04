@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -90,7 +90,7 @@ static inline int ci_sys_epoll_create_compat(int size, int flags, int cloexec)
 ci_inline citp_fdinfo*
 citp_epoll_fdi_from_member(citp_fdinfo* fd_fdi, int fdt_locked)
 {
-  citp_fdinfo* epoll_fdi = citp_fdtable_lookup_noprobe(fd_fdi->epoll_fd);
+  citp_fdinfo* epoll_fdi = citp_fdtable_lookup_noprobe(fd_fdi->epoll_fd, fdt_locked);
   if( epoll_fdi == NULL ) {
     Log_POLL(ci_log("%s: epoll_fd=%d not found (fd=%d)", __FUNCTION__,
                     fd_fdi->epoll_fd, fd_fdi->fd));
@@ -222,7 +222,7 @@ struct citp_ordered_wait {
 /* Epoll state in user-land poll.  Copied from oo_ul_poll_state */
 struct oo_ul_epoll_state {
   /* Parameters of this epoll fd */
-  struct citp_epoll_fd*__restrict__ ep;
+  struct citp_epoll_fd* ep;
 
   /* Where to store events. */
   struct epoll_event*__restrict__ events;

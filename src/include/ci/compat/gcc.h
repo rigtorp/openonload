@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -148,7 +148,7 @@ typedef ci_uint64                       ci_fixed_descriptor_t;
 #endif
 
 
-#define OO_ACCESS_ONCE(p) (*(volatile typeof(p) *)&(p))
+#define OO_ACCESS_ONCE(p) (*(volatile __typeof__(p) *)&(p))
 
 
 /**********************************************************************
@@ -181,7 +181,7 @@ typedef ci_uint64                       ci_fixed_descriptor_t;
 /* Compiler barrier: prevent compiler from reordering.  (Does nothing to
  * prevent the processor or platform from reordering).
  */
-#define ci_compiler_barrier()    __asm__ __volatile__ ("")
+#define ci_compiler_barrier()    __asm__ __volatile__ ("": : :"memory")
 
 
 #endif  /* __CI_COMPAT_GCC_H__ */

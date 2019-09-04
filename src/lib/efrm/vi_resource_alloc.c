@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -65,6 +65,7 @@
 #include <ci/efrm/pd.h>
 #include <ci/efrm/pio.h>
 #include <ci/affinity/k_drv_intf.h>
+#include <ci/tools/utils.h>
 #include "efrm_internal.h"
 #include "efrm_vi_set.h"
 #include "efrm_pd.h"
@@ -1643,6 +1644,9 @@ int efrm_vi_tx_alt_alloc(struct efrm_vi *virs, int num_alt, int num_32b_words)
 {
 	struct efhw_nic *nic = virs->rs.rs_client->nic;
 	int rc;
+
+        if ((num_alt <= 0) || (num_32b_words <= 0))
+                return -EINVAL;
 
 	if (virs->tx_alt_num > 0)
 		return -EALREADY;

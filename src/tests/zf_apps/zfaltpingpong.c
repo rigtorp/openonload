@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -19,6 +19,7 @@
  *
  * This sample is based on the zftcppingpong sample.
  */
+#include <etherfabric/ef_vi.h> /* for struct ef_vi_transmit_alt_overhead */
 #include <zf/zf.h>
 #include "zf_utils.h"
 
@@ -79,11 +80,14 @@ static int queue_message(struct zf_stack* stack, struct zft* zock,
 {
   struct iovec iov = { .iov_base = (void*) buf, .iov_len = len };
   int rc;
-  while( (rc = zft_alternatives_queue(zock, alt, &iov, 1, 0)) == -EBUSY ) {
-    ++alt_busy_count;
-    zf_reactor_perform(stack);
+  int event_occurred = 0;
+  while( rc = zft_alternatives_queue(zock, alt, &iov, 1, 0),
+         rc == -EBUSY || rc == -EAGAIN ) {
+    if( rc == -EBUSY )
+      ++alt_busy_count;
+    event_occurred |= zf_reactor_perform(stack);
   }
-  return rc;
+  return rc < 0 ? rc : event_occurred;
 }
 
 
@@ -95,22 +99,31 @@ static void ping_pongs(struct zf_stack* stack, struct zft* zock,
   const int max_iov = sizeof(msg.iov) / sizeof(msg.iov[0]);
   int sends_left = cfg.itercount;
   int recvs_left = cfg.itercount;
-  bool zock_has_rx_data = false;
+  bool zock_maybe_has_rx_data = false;
   int next_alt = 0;
+  int rc;
 
-  ZF_TRY(queue_message(stack, zock, alts[next_alt], send_buf, cfg.size));
+  /* We expect the queuing to succeed without having to poll the stack, since
+   * the alternative should not be busy and we have ample send space, so we
+   * assert that queue_message() returns zero here. */
+  rc = queue_message(stack, zock, alts[next_alt], send_buf, cfg.size);
+  ZF_TRY(rc);
+  ZF_TEST(rc == 0);
 
   if( cfg.ping ) {
     ZF_TRY(zf_alternatives_send(stack, alts[next_alt]));
     next_alt = (next_alt + 1) % NUM_ALTS;
-    ZF_TRY(queue_message(stack, zock, alts[next_alt], send_buf, cfg.size));
+    /* As above, queue_message() should return zero. */
+    rc = queue_message(stack, zock, alts[next_alt], send_buf, cfg.size);
+    ZF_TRY(rc);
+    ZF_TEST(rc == 0);
     --sends_left;
   }
 
   do {
     size_t bytes_left = cfg.size;
     do {
-      if( ! zock_has_rx_data )
+      if( ! zock_maybe_has_rx_data )
         /* Poll the stack until something happens. */
         while( zf_reactor_perform(stack) == 0 )
           ;
@@ -131,13 +144,16 @@ static void ping_pongs(struct zf_stack* stack, struct zft* zock,
           break;
         ZF_TEST(zft_zc_recv_done(zock, &msg.msg) == 1);
       }
-      zock_has_rx_data = msg.msg.pkts_left != 0;
+      zock_maybe_has_rx_data = msg.msg.pkts_left != 0;
     } while( bytes_left );
 
     if( sends_left ) {
       ZF_TRY(zf_alternatives_send(stack, alts[next_alt]));
       next_alt = (next_alt + 1) % NUM_ALTS;
-      ZF_TRY(queue_message(stack, zock, alts[next_alt], send_buf, cfg.size));
+      rc = queue_message(stack, zock, alts[next_alt], send_buf, cfg.size);
+      if( rc )
+        zock_maybe_has_rx_data = true;
+      ZF_TRY(rc);
       --sends_left;
     }
     ZF_TEST(zft_zc_recv_done(zock, &msg.msg) == 1);
@@ -179,6 +195,7 @@ int main(int argc, char* argv[])
       cfg.itercount = atoi(optarg);
       break;
     case '?':
+      usage_err();
       exit(1);
     default:
       ZF_TEST(0);
@@ -247,6 +264,14 @@ int main(int argc, char* argv[])
     ZF_TRY(zftl_free(listener));
   }
   printf("Connection established\n");
+
+  /* Verify that we have enough buffer space. */
+  struct ef_vi_transmit_alt_overhead overhead;
+  ZF_TRY( zf_alternatives_query_overhead_tcp(zock, &overhead) );
+  int pkt_bytes = ef_vi_transmit_alt_usage(&overhead, cfg.size);
+  int64_t buffer_space;
+  ZF_TRY( zf_attr_get_int(attr, "alt_buf_size", &buffer_space) );
+  ZF_TEST( pkt_bytes <= buffer_space );
 
   if( cfg.ping ) {
     double rtt;

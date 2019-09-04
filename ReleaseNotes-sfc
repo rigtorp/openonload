@@ -1,6 +1,6 @@
 Solarflare 4.X Linux network driver
 ===================================
-Version:  4.10.0.1012
+Version:  4.12.1.1016
 
 
 Overview
@@ -14,9 +14,12 @@ Supported hardware platforms
 The drivers contained in this package support the following Solarflare 
 adapters:
 
-- Solarflare Flareon [Ultra] Server Adapters:
+- Solarflare Server Adapters:
+  - Solarflare SFN8522M Dual Port SFP+ Server Adapter
+  - Solarflare SFN8042 Dual Port QSFP+ Server Adapter
   - Solarflare SFN8522 Dual Port SFP+ Server Adapter
   - Solarflare SFN8542 Dual Port QSFP+ Server Adapter
+  - Solarflare SFN8722 Dual Port SFP+ OCP Server Adapter
   - Solarflare SFN7002F Dual Port SFP+ Server Adapter
   - Solarflare SFN7004F Quad Port SFP+ Server Adapter
   - Solarflare SFN7042Q Dual Port QSFP+ Server Adapter
@@ -49,7 +52,7 @@ adapters:
   - HP Ethernet 10Gb 570FLB Adapter
   - HP Ethernet 10Gb 570M Adapter
   - HP Ethernet 10Gb 572SFP+ Adapter
-  - Lenovo SFN7122F 2x10GbE SFP+ Flareon Ultra Adapter
+  - Lenovo SFN7122F 2x10GbE SFP+ Adapter
 
 
 Building and installation
@@ -73,7 +76,7 @@ kernel
 Installation of the driver can be confirmed by typing:
    modinfo sfc | grep version
 and checking for the line:
-   version: 4.10.0.1012
+   version: 4.12.1.1016
 
 All network interfaces available on the system can be found with:
   ifconfig -a
@@ -97,19 +100,19 @@ Linux distribution support for Solarflare Adapters
 --------------------------------------------------
 
 This driver package is supported on:
- - RedHat Enterprise Linux		          5.10,  5.11
- - RedHat Enterprise Linux		          6.5, 6.6, 6.7, 6.8
+ - RedHat Enterprise Linux		          6.7, 6.8, 6.9
    - Redhat Messaging Realtime and Grid           2.5
- - RedHat Enterprise Linux 		          7.0, 7.1, 7.2
-   - RedHat Enterprise Linux for Realtime	  7.1, 7.2
+ - RedHat Enterprise Linux		          7.2, 7.3, 7.4
+   - RedHat Enterprise Linux for Realtime	  7.2, 7.3
  - SuSE Linux Enterprise Server 11                sp3, sp4
    - SuSE Linux Enterprise RealTime Extension 11  
- - SuSE Linux Enterprise Server 12                base release, sp1
+ - SuSE Linux Enterprise Server 12                sp2, sp3
  - Canonical Ubuntu Server LTS                    14.04, 16.04
  - Canonical Ubuntu Server                        -
  - Debian 7 "Wheezy"                              7.X
  - Debian 8 "Jessie"                              8.X
- - Linux                                          2.6.18 to 4.9-rc1
+ - Debian 9 "Stretch"                             9.X
+ - Linux                                          2.6.18 to 4.13
 
 
 This driver has been tested as a VF driver using KVM / ESXi 5.5 and ESXi 6.0
@@ -316,6 +319,9 @@ Issue 50873:
 
 Known Issues with Solarflare driver/firmware
 --------------------------------------------
+Issue :
+ ~ 
+
 Issue 50868:
   ~ If using a SFN7142Q adapter with adapter firmware v4.1.0.6742 and running
     sfupdate, after the update the two network interfaces from the second QSFP+
@@ -326,32 +332,253 @@ Issue 50868:
 Changelog
 ---------
 
-### v4.10.0.1012 -- GA release for overlays support on SFN8XXX adapters.
-
+### v4.12.1.1016 -- GA release (SF17.2)
 [General changes]
- ~ Overlays support now declared as fully supported (was a beta feature).
+ ~ Rework of MCDI (driver<=>adapter communication) state machine (to better
+   support long running background operations on the adapter).
+ ~ Increase maximum number of channels (as determined by the rss_cpus module
+   parameter) from 32 to 64. This allows more RX and TX queues which is useful
+   on systems with large numbers of cores. Note that most NICs will have a
+   default MSI-X interrupt count limit of 32. This can be increased using
+   "sfboot msix-limit=<n>".
+
+[PTP changes]
+ ~ Increase the frequency adjustment range supported by the net driver to +-10%
+   and create mechanism for sfptpd to detect this.
+
+[XDP preview]
+ ~ This release includes experimental driver support for XDP (Express Data
+   Path). XDP is a kernel feature that allows eBPF programs to be run on
+   incoming packets before they are passed to the rest of the network stack.
+   The program can modify the packet and instruct the driver to:
+    - accept the packet
+    - drop the packet
+    - transmit the packet on the same interface
+    - transmit the packet on a different interface
+ ~ Support for the various features depends on different upstream kernel
+   versions. Please check XDP support is available in your kernel:
+    - Support for drop and TX appeared in linux v4.8.
+    - Support for redirect is appearing in linux v4.14.
+ ~ For XDP transmit, additional transmit queues are used by the driver. To
+   avoid increasing the resource utilization in general use, this is NOT
+   enabled by default. To enable allocation of the necessary resources, the
+   module parameter "xdp_alloc_tx_resources=1" should be specified when
+   loading the driver. The intention is for a future release of this driver
+   to allow such resources to be allocated dynamically, avoiding the need
+   for this load time configuration; as such, it is likely that this module
+   parameter will be removed in a future release.
+
+Issue 73931:
+ ~ Check structure pointer is valid before use in debugfs.
+ ~ This was seen to cause a NULL pointer dereference in debugfs access only if
+   certain parts of driver initialization had failed. There is no issue if the
+   driver successfully creates a network interface.
+
+Issue 73700:
+ ~ Candidate fix for "kernel BUG at lib/dynamic_queue_limits.c:26!" by adding
+   memory barriers to address race between netdev_tx_sent and
+   netdev_tx_completed.
+
+Issue 73384:
+ ~ [SFN8000 series] No licenses available if the sfc driver loaded immediately
+   after firmware restart.
+ ~ This could only be triggered with "ethtool -t enp1s0f0; onload_tool reload"
+
+Issue 73143:
+ ~ Fixed reading of ef10 data on non-ef10 NIC (i.e. SFN5000 or SFN6000 series)
+ ~ This was detected using KASAN by Stefano Brivio at Redhat:
+      BUG: KASAN: slab-out-of-bounds in efx_mcdi_mac_stats 
+
+Issue 73104:
+ ~ Only report link down if it was previously up.
+ ~ This can occur as the adapter firmware may report changes to PCS states
+   while the overall link state is still down.
+
+Issue 73085:
+ ~ [PTP] Erroneous PTP offset sometimes reported on multi CPU-package machines,
+   believed to be caused by QPI routing.
+ ~ Improve sample selection by using the one which is closest to the average
+   of good samples.
+
+Issue 72543:
+ ~ [onload] Increase event queue 0 allowance for driverlink events. This had
+   been seen to lead to the following errors on TX queue 0:
+     MCDI request was completed without an event
+     TX queue 0 spurious TX completion id 1480
+
+Issue 72328:
+ ~ Fix possible overflow of unicast address list. e.g. by configuration of a
+   32nd macvlan interface all on the same network interface. The error was of
+   the form:
+     WARNING: at driver/linux_net/ef10.c:7032 efx_ef10_filter_insert_addr_list+0x4d2/0x510 [sfc]()
+
+Issue 72220:
+  ~ [32bit PHC support]. Fix bug in efx_phc_gettime32() that returns junk time.
+  ~ This only affects systems without 64bit PHC support e.g. some SLES11
+    (kernel 3.0.101) 
+
+Issue 71931:
+ ~ Correct endianness of filters debugfs output.
+
+Issue 70902:
+ ~ [SFN5000 and SFN6000 series] Fix panic in efx_ethtool_get_regs() from
+   "ethtool -d".
+
+Issue 68849:
+ ~ Fix "hwmon_device_register() is deprecated" warning seen in Ubuntu 17.04
+
+Issue 68040:
+ ~ [PTP + SFN8000 series] Report correct TX timestamp corrections for
+     (a) normal data path used for PTP transmit.
+     (b) general TX timestamps from the MAC.
+
+Issue 67150:
+ ~ Reduce race condition waiting for ethtool -t offline self-test to complete.
+
+Issue 66860:
+ ~ Correct VF handling when "ethtool -t offline" self-test is run on any
+   privileged PF.
+
+Issue 63057:
+ ~ [SFN8000 series] fallback to default speeds if none advertised.
+ ~ There can be an issue getting a link on SFN8000 series adapters after a
+   RHEL 6.8/7.3 in-box driver has been loaded first.
+
+Issue 62723:
+ ~ Remove PCIe FLR after "Failed to acquire MCDI state" as this does not seem
+   to improve driver robustness.
+
+Issue 58792:
+ ~ Fix WARNINGs on driver unload for (debug) kernels with the option
+   DEBUG_KOBJECT_RELEASE enabled.
+
+Issue 56902:
+ ~ Ensure filter is removed during an MC reboot (e.g. sfupdate) when onload is
+   being used. This has been seen to cause the following errors:
+     [onload] tcp_helper_endpoint_clear_filters: [0:28]  
+     sfc 0000:01:00.0 enp1s0f0: MC command 0x8a inlen 108 failed rc=-22 (raw=0) 
+   and
+     [onload] __oof_manager_addr_del: 0:79 CLEAR TCP 172.16.132.67:35769
+     sfc 0000:01:00.0 enp1s0f0: MC command 0x8a inlen 108 failed rc=-22 (raw=0) 
+
+Issue 48050:
+ ~ Handle adapter VPD data residing at offsets greater than 512bytes in PCI
+   config space.
+ ~ This resulted in the message "Unable to read VPD"
+
+[Stratus ftServer support] - Note these issues only affect PCI hot-plug cases
+Issue 68343:
+ ~ Fix deadlock between efx_channel_reassign_irq and efx_irq_notify.
+ ~ Could also be hit when running "ethtool -C" and "ethtool -G" in a loop.
+
+
+### v4.10.7.1000 -- Update release to match EO5 release
+[General changes]
+ ~ Kernel compatibility for RHEL 7.4
+ ~ Change to newer API to avoid the following deprecation warning:
+     hwmon_device_register() is deprecated.
+     Please convert the driver to use hwmon_device_register_with_info().
+ ~ Expose the sfc_pps work queue in sysfs so that CPU affinity can be
+   controlled.
+
+
+### v4.10.6.1002 -- Update release (SF17.1)
+[General changes]:
+ ~ Kernel compatibility extended to Linux 4.11.
+ ~ Adjust to core networking busy polling support available in Linux 4.11.
+
+[XDP preview]
+ ~ Preview of RX side XDP support.
+ ~ This allows for RX filtering to use the DROP target and for RX packet
+   modification (e.g. decapsulation).
+ ~ Additionally header expansion is supported (e.g. encapsulation).
+
+Issue 69569:
+ ~ Fix timestamp being 1s behind if the minor nanosecond timestamp happened to
+   be exactly on 0.
+
+
+### v4.10.4.1005 -- GA release to match openonload-201606-u1.2
+[General changes]
+ ~ Kernel compatability extended to Linux 4.10.
+
+Issue 68158:
+ ~ Fix driver build without PTP support.
+
+Issue 67994:
+ ~ Fix for pps_get_ts() only returning microsecond resolution with RHEL 7.2.
+ ~ (Note this did not affect other RHEL 7.X releases).
+ ~ This would affect the PTP convergence accuracy that is achieved.
+
+
+### v4.10.4.1000 -- GA release for ESXi adding support for SFN8542 adapters.
+[General VMware ESXi 5.5, 6.0 and 6.5 support]
+ ~ GA support for ESXi and SFN8542 Solarflare adapters.
+ ~ Support VXLAN acceleration for ESXi.
+
+
+### v4.10.0.1025 -- GA release for overlays support on SFN8XXX adapters.
+[General changes]
+ ~ Improve error message when a TX queue times out to give more information.
+
+Issue 66936:
+ ~ Ensure the packet prefix is available to timestamping.
+ ~ Without this patch invalid memory accesses to addresses ending 0xfb
+   will be seen in __efx_rx_skb_attach_timestamp() if GRO or LRO is being used.
+
+Issue 66058:
+ ~ Clear napi_hash related state when copying channels.
+ ~ This is only seen on driver unload when >256 NAPI channels are being used
+   (across all adapters on the server; partly determined by the sfc module
+   parameter "rss_cpus").
+ ~ This has been seen to cause:
+    - general protection fault in efx_stop_all+0x38a/0x5a0.
+    - kernel NULL pointer dereference in napi_hash_add+0x59/0xc0.
+
+[Stratus ftServer support] - Note these issues only affect PCI hot-plug cases:
+Issue 67007:
+ ~ Fix race between efx_pci_remove_main() and efx_irq_notify().
+Issue 61922:
+ ~ Hold RTNL while we modify the CPU channel map.
+
+
+### v4.10.0.1011 -- Intermediate release as part of openonload-201606-u1
+[General changes]
+ ~ GA release of acceleration for overlay networks, VxLAN / NV-GRE / GENEVE
+   (previously beta)
  ~ Check MTU against minimum threshold.
  ~ Better detection of BIOS/kernel failing to provide addresses for PCI BARs.
 
+Issue 66869 (ESX only):
+ ~ Fix a race in the admin side of MCDI proxy authorization.
+ ~ The error message reported would be of the form:
+     efx_proxy_auth_handle_request: invalid req state 5 
+
 Issue 65427:
- ~ Report 4-tuple UDP hashing to ethtool, if it's enabled.
+ ~ Correctly report UDP RSS hashing mode as 2-tuple (address only) or 4-tuple
+   (address and port)  with "ethtool -n <intf> rx-flow-hash udp4"
 
 Issue 65511:
  ~ Avoid kernel warning from efx_ef10_ev_process() when the sfc.ko module
    parameter forward_fcs=1, as CRCs should be ignored in this case.
 
+Issue 65013:
+ ~ An interaction with the kernel stack can lead to no traffic being transmitted
+   if a very small (less than 68) MTU is set. The driver will now reject such
+   configurations as invalid.
+
 Issue 64919:
  ~ Fix crash seen in efx_pci_probe_main() when sf-boot pf-count was altered and
    the driver was reloaded.
 
-Issue 64574/65176:
- (SFN8XXX only) when using TX timestamps (e.g. with sfptpd running)
- ~ Fixes handling a merged TX timestamp (by the adapter).
- ~ Fixes handling xmit_more (from the kernel queuing discipline) with TX
-   timestamps.
- ~ Note the error message seen would be reported on the highest TX queue:
-     sfptpd: retrieved transmit timestamp but no packet
-     kernel: sfc 0000:82:00.1 sfc1: TX queue 4 spurious TX completion id 1a
+Issue 64574/65176 (SFN8XXX only):
+ ~ Packets with transmit timestamps with the xmit_more flag (set by the kernel
+   queuing discipline)  could be delayed before transmission, causing missing
+   packet reports from PTP daemons. In unusual cases this could lead to
+   TX watchdog timeouts.
+ ~ The sfptpd error message reported would be of the form:
+      sfptpd: retrieved transmit timestamp but no packet
+      kernel: sfc 0000:82:00.1 sfc1: TX queue 4 spurious TX completion id 1a
 
 
 ### v4.9.0.1016 -- GA release adding support for SFN8542 adapters.
@@ -363,12 +590,14 @@ Support for stateless checksum offloads for NVGRE,VXLAN,GENEVE encapsulation on
 SFN8XXX adapters is still considered a BETA at this time.
 
 [General changes]
- ~ Add support for "ethtool -C stats-block-usecs".
-   Default is 1 sec, but this can be reduced in order to accurately sample every
-   second from a script
  ~ Fail gracefully when PCIe BARs are unassigned (better detection of BIOS
    issues which have been seen after a PCI bus rescan).
  ~ Add support for software TX timestamping.
+
+[SFN8000 series support]
+ ~ Add support for "ethtool -C stats-block-usecs".
+   Default is 1 sec, but this can be reduced in order to accurately sample every
+   second from a script.
 
 [overlays support]
  ~ Add encap TNI to debugfs filter dump.
@@ -538,6 +767,43 @@ Issue 53130
 [Stratus ftServer support]
 Issue 60796:
  ~ Fix efx_mcdi_acquire_sync() returning -ETIMEDOUT on impolite unplug.
+
+
+### v4.7.0.1046 -- Update release for EOL 3
+
+Please note that network interface names may change across this driver update.
+See issue 64065 below.
+
+[General changes]
+ ~ Build fixes for linux 4.10 kernels.
+ ~ Build fixes for RHEL 7.4 kernels.
+ ~ Provide an option to place external network port PHY into power down when the
+   network interface is administratively down. This means the link partner also
+   sees link down. Currently this is controlled via an ethtool private flag:
+    - To enable/disable:
+       ethtool --set-priv-flags DEVNAME phy-power-follows-link (on|off)
+    - To show current state:
+       ethtool --show-priv-flags DEVNAME
+
+[SFN8522 support]
+ ~ Support IPv6 flow-steering in ethtool rxnfc API (still needs support in
+   ethtool)
+ ~ Support encap-over-IPv6 in ethtool n-tuple API (still needs support in
+   ethtool)
+
+Issue 69569:
+ ~ Fix timestamp being 1s behind if the minor nanosecond timestamp happened to
+   be exactly on 0.
+
+Issue 67994:
+ ~ Fix for pps_get_ts() only returning microsecond resolution with RHEL 7.2.
+ ~ (Note this did not affect other RHEL 7.X releases).
+ ~ This would affect the PTP convergence accuracy that is achieved.
+
+Issue 64065:
+ ~ Stop setting dev_port and instead implement get_phys_port_id for PFs. This
+   makes network interface names assigned by systemd more consistent with other
+   network drivers e.g. enp130s0f1d1 becomes enp130s0f1.
 
 
 ### v4.7.0.1035 -- Update release
@@ -1734,5 +2000,5 @@ Issue 19951
 
 Copyright
 ---------
-Copyright 2009-2016 Solarflare Communications Inc.  All rights reserved.
+Copyright 2009-2017 Solarflare Communications Inc.  All rights reserved.
 Use is subject to license terms.

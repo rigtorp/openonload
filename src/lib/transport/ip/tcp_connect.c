@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -97,7 +97,7 @@ static int ci_tcp_validate_sa( sa_family_t domain,
 /* The flags and state associated with bind are complex.  This function
  * provides a basic consistency check on the enabled flags.
  */
-inline void ci_tcp_bind_flags_assert_valid(ci_sock_cmn* s)
+ci_inline void ci_tcp_bind_flags_assert_valid(ci_sock_cmn* s)
 {
   if( s->s_flags & CI_SOCK_FLAG_DEFERRED_BIND ) {
     /* If we deferred the bind we need to know that we should bind later */
@@ -205,7 +205,7 @@ int __ci_tcp_bind(ci_netif *ni, ci_sock_cmn *s, ci_fd_t fd,
 #ifndef __ci_driver__
   /* We do not call bind() to alien address from in-kernel code */
   if( ! (s->s_flags & CI_SOCK_FLAG_TPROXY) && ip_addr_be32 != INADDR_ANY &&
-      ! cicp_user_addr_is_local_efab(CICP_HANDLE(ni), &ip_addr_be32) )
+      ! cicp_user_addr_is_local_efab(ni->cplane, ip_addr_be32) )
     s->s_flags |= CI_SOCK_FLAG_BOUND_ALIEN;
 #endif
   
@@ -251,6 +251,7 @@ static int ci_tcp_connect_check_dest(citp_socket* ep, ci_ip_addr_t dst_be32,
 
   ipcache->ip.ip_daddr_be32 = dst_be32;
   ipcache->dport_be16 = dport_be16;
+  oo_cp_verinfo_init(&ipcache->mac_integrity);
   cicp_user_retrieve(ep->netif, ipcache, &ep->s->cp);
 
   if(CI_LIKELY( ipcache->status == retrrc_success ||
@@ -333,12 +334,13 @@ ci_tcp_use_mac_filter(ci_netif* ni, ci_sock_cmn* s, ci_ifid_t ifindex,
      * are not eligible, though, as they need an RSSed filter.
      */
     if( (use_mac_filter == 0) && (s->b.state == CI_TCP_LISTEN) &&
-         ! (s->s_flags & CI_SOCK_FLAG_REUSEPORT) ) {
+        ((NI_OPTS(ni).cluster_ignore == 1 ) ||
+         ! (s->s_flags & CI_SOCK_FLAG_REUSEPORT)) ) {
       /* based on bind to device we might be using scalable iface */
-      if( ifindex < 0 ) {
+      if( ifindex <= 0 ) {
         /* Determine which ifindex the IP address being bound to is on. */
-        cicp_user_find_home(CICP_HANDLE(ni), &sock_laddr_be32(s),
-                            NULL, &ifindex, NULL, NULL, NULL);
+        oo_cp_find_llap_by_ip(ni->cplane, sock_laddr_be32(s),
+                              NULL, &ifindex, NULL, NULL, NULL);
       }
       use_mac_filter |= (NI_OPTS(ni).scalable_filter_ifindex == ifindex);
     }
@@ -665,6 +667,8 @@ static int ci_tcp_connect_ul_syn_sent(ci_netif *ni, ci_tcp_state *ts)
     }
 
 #ifndef __KERNEL__
+    /* This "if" starts and ends with the stack being locked.  It can
+     * release the stack lock while spinning. */
     if( oo_per_thread_get()->spinstate & (1 << ONLOAD_SPIN_TCP_CONNECT) ) {
       ci_uint64 start_frc, now_frc, schedule_frc;
       citp_signal_info* si = citp_signal_get_specific_inited();
@@ -696,7 +700,8 @@ static int ci_tcp_connect_ul_syn_sent(ci_netif *ni, ci_tcp_state *ts)
         }
         if( ts->s.b.state != CI_TCP_SYN_SENT ) {
           ni->state->is_spinner = 0;
-          ci_netif_lock(ni);
+          if( ! stack_locked )
+            ci_netif_lock(ni);
           rc = 0;
           goto out;
         }
@@ -712,7 +717,8 @@ static int ci_tcp_connect_ul_syn_sent(ci_netif *ni, ci_tcp_state *ts)
                                              ts->s.so.sndtimeo_msec, NULL, si);
         if( rc != 0 ) {
           ni->state->is_spinner = 0;
-          ci_netif_lock(ni);
+          if( ! stack_locked )
+            ci_netif_lock(ni);
           goto out;
         }
 #if CI_CFG_SPIN_STATS
@@ -721,7 +727,8 @@ static int ci_tcp_connect_ul_syn_sent(ci_netif *ni, ci_tcp_state *ts)
       } while( now_frc - start_frc < max_spin );
 
       ni->state->is_spinner = 0;
-      ci_netif_lock(ni);
+      if( ! stack_locked )
+        ci_netif_lock(ni);
 
       if( timeout ) {
         ci_uint32 spin_ms = (start_frc - now_frc) / IPTIMER_STATE(ni)->khz;
@@ -804,6 +811,36 @@ static int ci_tcp_connect_ul_syn_sent(ci_netif *ni, ci_tcp_state *ts)
 
 
 #ifndef __KERNEL__
+static void
+complete_deferred_bind(ci_netif* netif, ci_sock_cmn* s, ci_fd_t fd)
+{
+  ci_uint16 source_be16 = 0;
+  int rc;
+
+  ci_assert_flags(s->s_flags, CI_SOCK_FLAG_DEFERRED_BIND);
+
+  if( s->s_flags & CI_SOCK_FLAG_ADDR_BOUND )
+    rc = __ci_tcp_bind(netif, s, fd, s->pkt.ip.ip_saddr_be32,
+                       &source_be16, 0);
+  else
+    rc = __ci_tcp_bind(netif, s, fd, INADDR_ANY, &source_be16, 0);
+
+  if(CI_LIKELY( rc == 0 )) {
+    s->s_flags &= ~(CI_SOCK_FLAG_DEFERRED_BIND |
+                    CI_SOCK_FLAG_CONNECT_MUST_BIND);
+    sock_lport_be16(s) = source_be16;
+    s->cp.lport_be16 = source_be16;
+    LOG_TC(log(NSS_FMT "Deferred bind returned %s:%u",
+               NSS_PRI_ARGS(netif, s),
+               ip_addr_str(INADDR_ANY), ntohs(sock_lport_be16(s))));
+  }
+  else {
+    LOG_U(ci_log("__ci_tcp_bind returned %d at %s:%d", CI_GET_ERROR(rc),
+                 __FILE__, __LINE__));
+  }
+}
+
+
 /* Returns:
  *          0                  on success
  *          
@@ -967,6 +1004,8 @@ int ci_tcp_connect(citp_socket* ep, const struct sockaddr* serv_addr,
  unlock_out:
   ci_netif_unlock(ep->netif);
  out:
+  if( rc == CI_SOCKET_HANDOVER && (s->s_flags & CI_SOCK_FLAG_DEFERRED_BIND) )
+    complete_deferred_bind(ep->netif, &ts->s, fd);
   return rc;
 }
 #endif
@@ -1227,6 +1266,7 @@ int ci_tcp_reuseport_bind(ci_sock_cmn* sock, ci_fd_t fd)
   if ( (rc = ci_tcp_ep_reuseport_bind(fd, CITP_OPTS.cluster_name,
                                       CITP_OPTS.cluster_size,
                                       CITP_OPTS.cluster_restart_opt,
+                                      CITP_OPTS.cluster_hot_restart_opt,
                                       sock_laddr_be32(sock), 
                                       sock_lport_be16(sock))) != 0 ) {
     errno = -rc;
@@ -1399,6 +1439,9 @@ int ci_tcp_listen(citp_socket* ep, ci_fd_t fd, int backlog)
   LOG_TC(log("%s "SK_FMT" listen backlog=%d", __FUNCTION__, SK_PRI_ARGS(ep), 
              backlog));
   CHECK_TEP(ep);
+
+  if( s->s_flags & CI_SOCK_FLAG_DEFERRED_BIND )
+    complete_deferred_bind(netif, s, fd);
 
   if( NI_OPTS(netif).tcp_listen_handover )
     return CI_SOCKET_HANDOVER;
@@ -1699,29 +1742,8 @@ int ci_tcp_getsockname(citp_socket* ep, ci_fd_t fd, struct sockaddr* sa,
   /* Check consistency of multitude of bind flags */
   ci_tcp_bind_flags_assert_valid(s);
 
-  if( s->s_flags & CI_SOCK_FLAG_DEFERRED_BIND ) {
-    ci_uint16 source_be16 = 0;
-
-    if( s->s_flags & CI_SOCK_FLAG_ADDR_BOUND )
-      rc = __ci_tcp_bind(ep->netif, s, fd, s->pkt.ip.ip_saddr_be32,
-                         &source_be16, 0);
-    else
-      rc = __ci_tcp_bind(ep->netif, s, fd, INADDR_ANY, &source_be16, 0);
-
-    if(CI_LIKELY( rc == 0 )) {
-      s->s_flags &= ~(CI_SOCK_FLAG_DEFERRED_BIND |
-                      CI_SOCK_FLAG_CONNECT_MUST_BIND);
-      sock_lport_be16(s) = source_be16;
-      s->cp.lport_be16 = source_be16;
-      LOG_TC(log(NSS_FMT "Deferred bind returned %s:%u",
-                 NSS_PRI_ARGS(ep->netif, s),
-                 ip_addr_str(INADDR_ANY), ntohs(sock_lport_be16(s))));
-    }
-    else {
-      LOG_U(ci_log("__ci_tcp_bind returned %d at %s:%d", CI_GET_ERROR(rc),
-                   __FILE__, __LINE__));
-    }
-  }
+  if( s->s_flags & CI_SOCK_FLAG_DEFERRED_BIND )
+    complete_deferred_bind(ep->netif, s, fd);
 
   return rc;
 }

@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -93,9 +93,8 @@ oo_resource_mmap(ci_fd_t fp, ci_uint8 map_type, unsigned long map_id,
   int mmap_flags = MAP_SHARED;
 
   off_t offset = map_id << OO_MMAP_ID_SHIFT;
-#ifdef OO_MMAP_HAVE_EXTENDED_MAP_TYPES
   offset |= ((off_t) map_type) << OO_MMAP_TYPE_SHIFT;
-#else
+#ifndef OO_MMAP_TYPE_DSHM
   ci_assert_equal(map_type, OO_MMAP_TYPE_NETIF);
 #endif
 
@@ -151,37 +150,23 @@ oo_ep_info(ci_fd_t fp, ci_ep_info_t* io)
 }
 
 ci_inline int
+oo_vi_stats_query(ci_fd_t fp, int intf_i, void* data, int data_len,
+                  int do_reset)
+{
+  ci_vi_stats_query_t io;
+  io.intf_i = intf_i;
+  CI_USER_PTR_SET(io.stats_data, data);
+  io.data_len = data_len;
+  io.do_reset = do_reset;
+
+  if( ci_sys_ioctl(fp, OO_IOC_VI_STATS_QUERY, &io) < 0 ) return -errno;
+  return 0;
+}
+
+ci_inline int
 oo_debug_op(ci_fd_t fp, ci_debug_onload_op_t *io)
 {
   if (ci_sys_ioctl(fp, OO_IOC_DEBUG_OP, io) < 0) return -errno;
-  return 0;
-}
-
-ci_inline int
-oo_config_set (ci_fd_t fp, ci_cfg_ioctl_desc_t *desc)
-{
-  if (ci_sys_ioctl(fp, OO_IOC_CFG_SET, desc) < 0) return -errno;
-  return 0;
-}
-
-ci_inline int
-oo_config_unset (ci_fd_t fp, ci_cfg_ioctl_desc_t *desc)
-{
-  if (ci_sys_ioctl(fp, OO_IOC_CFG_UNSET, desc) < 0) return -errno;
-  return 0;
-}
-
-ci_inline int
-oo_config_get (ci_fd_t fp, ci_cfg_ioctl_desc_t *desc)
-{
-  if (ci_sys_ioctl(fp, OO_IOC_CFG_GET, desc) < 0) return -errno;
-  return 0;
-}
-
-ci_inline int
-oo_config_query (ci_fd_t fp, ci_cfg_ioctl_desc_t *desc)
-{
-  if (ci_sys_ioctl(fp, OO_IOC_CFG_QUERY, desc) < 0) return -errno;
   return 0;
 }
 

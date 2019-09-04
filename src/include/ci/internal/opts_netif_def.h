@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -353,6 +353,15 @@ CI_CFG_OPT("EF_TX_TIMESTAMPING", tx_timestamping, ci_uint32,
 " does not succeed;\n",
            2, , 0, 0, 3, count)
 
+CI_CFG_OPT("EF_TCP_TSOPT_MODE", tcp_tsopt_mode, ci_uint32,
+"Enable or disable per-stack TCP header timestamps (as defined in RFC 1323).  "
+"Overrides system setting ipv4.tcp_timestamps and EF_TCP_SYN_OPTS.  "
+"Possible values are:\n"
+"  0  -  Disable TCP header timestamps\n"
+"  1  -  Enable TCP header timestamps\n"
+"  2  -  Use system settings (default)\n",
+        2, , 2, 0, 2, count)
+
 CI_CFG_OPT("EF_CLUSTER_IGNORE", cluster_ignore, ci_uint32,
 "When set, this option instructs Onload to ignore attempts to use clusters and "
 "effectively ignore attempts to set SO_REUSEPORT.",
@@ -509,13 +518,6 @@ CI_CFG_OPT("EF_TCP_RCVBUF_MODE", tcp_rcvbuf_mode, ci_uint32,
 "       size of the buffer for an individual socket."
 "The effect of EF_TCP_RCVBUF_STRICT is independent of this setting.",
 	   1, , 0, 0, 1, yesno)
-
-CI_CFG_OPT("EF_TCP_LISTEN_REPLIES_BACK", tcp_listen_replies_back, ci_uint32,
-"When TCP listening socket replies to incoming SYN, this option forces "
-"Onload to ignore the route table and to reply to the same network "
-"interface the SYN was received from.  This mode could be considered as "
-"a poor man source routing replacement.",
-           1, , 0, 0, 1, yesno)
 
 CI_CFG_OPT("EF_HIGH_THROUGHPUT_MODE", rx_merge_mode, ci_uint32,
 "This option causes onload to optimise for throughput at the cost of latency.",
@@ -674,7 +676,9 @@ CI_CFG_OPT("EF_SYNC_CPLANE_AT_CREATE", sync_cplane, ci_uint32,
 "is time critical."
 "\n"
 "Setting this option to 0 will disable forced sync.  Synchronising data from "
-"the kernel will continue to happen periodically.",
+"the kernel will continue to happen periodically."
+"\n"
+"Sync operation time is limited by cplane_init_timeout onload module option.",
            2, , 2, 0, 2, oneof:never;first;always)
 
 CI_CFG_OPT("EF_TCP_SYN_OPTS", syn_opts, ci_uint32,
@@ -682,7 +686,8 @@ CI_CFG_OPT("EF_TCP_SYN_OPTS", syn_opts, ci_uint32,
 "bit 0 (0x1) is set to 1 to enable PAWS and RTTM timestamps (RFC1323),\n"
 "bit 1 (0x2) is set to 1 to enable window scaling (RFC1323),\n"
 "bit 2 (0x4) is set to 1 to enable SACK (RFC2018),\n"
-"bit 3 (0x8) is set to 1 to enable ECN (RFC3128).",
+"bit 3 (0x8) is set to 1 to enable ECN (RFC3128)."
+"Overridden by OS settings if they are available.",
            4, , CI_TCPT_SYN_FLAGS, MIN, MAX, bitmask)
 
 CI_CFG_OPT("EF_TCP_ADV_WIN_SCALE_MAX", tcp_adv_win_scale_max, ci_uint32,
@@ -1405,6 +1410,26 @@ CI_CFG_OPT("EF_SCALABLE_FILTERS_ENABLE", scalable_filter_enable, ci_int32,
 "is set to 0 then scalable filters will not be used for this stack.  If unset "
 "this will default to 1 if EF_SCALABLE_FILTERS is configured.",
            , , 0, 0, 1, yesno)
+
+CI_CFG_STR_OPT("EF_INTERFACE_WHITELIST", iface_whitelist, ci_string256,
+               "List of names of interfaces to use by the stack.  "
+               "Space separated.\n"
+               "Note: beside passing network interface of Solarflare NIC itself, "
+               "it is allowed to provide name of higher order interface such as "
+               "VLAN, MACVLAN, team or bond.  At stack creation time these names "
+               "will be used to identify underlaying Solarflare NICs on which the "
+               "whitelisting operates.\n"
+               "Note: the granularity of whitelisting is limited: all interfaces "
+               "based on whitelisted Solarflare NICs are accelerated.",
+               ,  , "", none, none, )
+
+CI_CFG_STR_OPT("EF_INTERFACE_BLACKLIST", iface_blacklist, ci_string256,
+               "List of names of interfaces not to be used by the stack.  "
+               "Space separated.\n"
+               "See EF_INTERFACE_WHITELIST for notes as the same caveats apply.\n"
+               "Note: blacklist takes priority over whitelist.  That is when "
+               "interface is present on both lists it will not be accelerated." ,
+               ,  , "", none, none, )
 
 #ifdef CI_CFG_OPTGROUP
 /* define some categories - currently more as an example than as the final

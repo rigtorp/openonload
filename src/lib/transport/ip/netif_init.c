@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -31,8 +31,7 @@
 #include <etherfabric/internal/internal.h>
 
 #ifndef __KERNEL__
-#include <cplane/ul.h>
-#include "cplane_api_version.h"
+#include <cplane/cplane.h>
 #include <net/if.h>
 #include <ci/internal/efabcfg.h>
 #if CI_CFG_PKTS_AS_HUGE_PAGES
@@ -189,8 +188,8 @@ void ci_netif_state_init(ci_netif* ni, int cpu_khz, const char* name)
   memset(nis->dump_intf, 0, sizeof(nis->dump_intf));
 #endif
 
-  nis->uid = ni->uid;
-  nis->pid = current->tgid;
+  nis->uuid = ci_current_from_kuid_munged(ni->kuid);
+  nis->pid = task_pid_nr_ns(current, ci_netif_get_pidns(ni));
 
 #if CI_CFG_FD_CACHING
   nis->passive_cache_avail_stack = nis->opts.sock_cache_max;
@@ -237,48 +236,31 @@ void ci_netif_state_init(ci_netif* ni, int cpu_khz, const char* name)
 
 
 static int citp_ipstack_params_inited = 0;
-static ci_uint32 citp_tcp_sndbuf_min, citp_tcp_sndbuf_def, citp_tcp_sndbuf_max;
-static ci_uint32 citp_tcp_rcvbuf_min, citp_tcp_rcvbuf_def, citp_tcp_rcvbuf_max;
-static ci_uint32 citp_udp_sndbuf_max, citp_udp_sndbuf_def;
-static ci_uint32 citp_udp_rcvbuf_max, citp_udp_rcvbuf_def;
-static ci_uint32 citp_tcp_backlog_max, citp_tcp_adv_win_scale_max;
-static ci_uint32 citp_fin_timeout;
-static ci_uint32 citp_retransmit_threshold, citp_retransmit_threshold_orphan,
-                 citp_retransmit_threshold_syn, citp_retransmit_threshold_synack;
-static ci_uint32 citp_keepalive_probes, citp_keepalive_time;
-static ci_uint32 citp_keepalive_intvl;
-static ci_uint32 citp_tcp_sack, citp_tcp_timestamps, citp_tcp_window_scaling;
-static ci_uint32 citp_tcp_dsack;
-
-static void
-ci_setup_ipstack_params_default(void)
-{
-  citp_tcp_sndbuf_min = CI_CFG_TCP_SNDBUF_MIN;
-  citp_tcp_sndbuf_def = CI_CFG_TCP_SNDBUF_DEFAULT;
-  citp_tcp_sndbuf_max = CI_CFG_TCP_SNDBUF_MAX;
-  citp_tcp_rcvbuf_min = CI_CFG_TCP_RCVBUF_MIN;
-  citp_tcp_rcvbuf_def = CI_CFG_TCP_RCVBUF_DEFAULT;
-  citp_tcp_rcvbuf_max = CI_CFG_TCP_RCVBUF_MAX;
-  citp_udp_sndbuf_max = CI_CFG_UDP_SNDBUF_MAX;
-  citp_udp_sndbuf_def = CI_CFG_UDP_SNDBUF_DEFAULT;
-  citp_udp_rcvbuf_max = CI_CFG_UDP_RCVBUF_MAX;
-  citp_udp_rcvbuf_def = CI_CFG_UDP_RCVBUF_DEFAULT;
-  citp_tcp_backlog_max = CI_TCP_LISTENQ_MAX;
-  citp_tcp_adv_win_scale_max = CI_TCP_WSCL_MAX;
-  citp_fin_timeout = CI_CFG_TCP_FIN_TIMEOUT;
-  citp_retransmit_threshold = CI_TCP_RETRANSMIT_THRESHOLD;
-  citp_retransmit_threshold_orphan = CI_TCP_RETRANSMIT_THRESHOLD_ORPHAN;
-  citp_retransmit_threshold_syn = CI_TCP_RETRANSMIT_THRESHOLD_SYN;
-  citp_retransmit_threshold_synack = CI_TCP_RETRANSMIT_THRESHOLD_SYN;
-  citp_keepalive_probes = CI_TCP_KEEPALIVE_PROBES;
-  citp_keepalive_time = CI_TCP_TCONST_KEEPALIVE_TIME;
-  citp_keepalive_intvl = CI_TCP_TCONST_KEEPALIVE_INTVL;
-  citp_tcp_sack = CI_CFG_TCP_SACK;
-  citp_tcp_timestamps = CI_CFG_TCP_TSO;
-  citp_tcp_window_scaling = CI_TCP_WSCL_DEFAULT;
-  citp_tcp_dsack = CI_CFG_TCP_DSACK;
-  
-}
+static ci_uint32 citp_tcp_sndbuf_min = CI_CFG_TCP_SNDBUF_MIN;
+static ci_uint32 citp_tcp_sndbuf_def = CI_CFG_TCP_SNDBUF_DEFAULT;
+static ci_uint32 citp_tcp_sndbuf_max = CI_CFG_TCP_SNDBUF_MAX;
+static ci_uint32 citp_tcp_rcvbuf_min = CI_CFG_TCP_RCVBUF_MIN;
+static ci_uint32 citp_tcp_rcvbuf_def = CI_CFG_TCP_RCVBUF_DEFAULT;
+static ci_uint32 citp_tcp_rcvbuf_max = CI_CFG_TCP_RCVBUF_MAX;
+static ci_uint32 citp_udp_sndbuf_max = CI_CFG_UDP_SNDBUF_MAX;
+static ci_uint32 citp_udp_sndbuf_def = CI_CFG_UDP_SNDBUF_DEFAULT;
+static ci_uint32 citp_udp_rcvbuf_max = CI_CFG_UDP_RCVBUF_MAX;
+static ci_uint32 citp_udp_rcvbuf_def = CI_CFG_UDP_RCVBUF_DEFAULT;
+static ci_uint32 citp_tcp_backlog_max = CI_TCP_LISTENQ_MAX;
+static ci_uint32 citp_tcp_adv_win_scale_max = CI_TCP_WSCL_MAX;
+static ci_uint32 citp_fin_timeout = CI_CFG_TCP_FIN_TIMEOUT;
+static ci_uint32 citp_retransmit_threshold = CI_TCP_RETRANSMIT_THRESHOLD;
+static ci_uint32 citp_retransmit_threshold_orphan =
+                   CI_TCP_RETRANSMIT_THRESHOLD_ORPHAN;
+static ci_uint32 citp_retransmit_threshold_syn =
+                   CI_TCP_RETRANSMIT_THRESHOLD_SYN;
+static ci_uint32 citp_retransmit_threshold_synack =
+                   CI_TCP_RETRANSMIT_THRESHOLD_SYN;
+static ci_uint32 citp_keepalive_probes = CI_TCP_KEEPALIVE_PROBES;
+static ci_uint32 citp_keepalive_time = CI_TCP_TCONST_KEEPALIVE_TIME;
+static ci_uint32 citp_keepalive_intvl = CI_TCP_TCONST_KEEPALIVE_INTVL;
+static ci_uint32 citp_syn_opts = CI_TCPT_SYN_FLAGS;
+static ci_uint32 citp_tcp_dsack = CI_CFG_TCP_DSACK;
 
 #ifndef __KERNEL__
 static int try_get_hp_sz(const char* line, unsigned* hp_sz)
@@ -336,8 +318,7 @@ static int check_hp(ci_netif_config_opts* opts){
 
 #ifndef __KERNEL__
 /* Interface for sysctl. */
-ci_inline int ci_sysctl_get_values(char *path, ci_uint32 *ret, int n, 
-                                   int quiet)
+ci_inline int ci_sysctl_get_values(char *path, ci_uint32 *ret, int n)
 {
   char name[CI_CFG_PROC_PATH_LEN_MAX + strlen(CI_CFG_PROC_PATH)];
   char buf[CI_CFG_PROC_LINE_LEN_MAX];
@@ -350,11 +331,12 @@ ci_inline int ci_sysctl_get_values(char *path, ci_uint32 *ret, int n,
   strncpy(name + strlen(CI_CFG_PROC_PATH), path, CI_CFG_PROC_PATH_LEN_MAX);
   fd = ci_sys_open(name, O_RDONLY);
   if (fd < 0) {
-#ifndef NDEBUG 
-    /* This message may apear if kernel is too old or in chroot */
-    if( ! quiet )
-      ci_log("%s: failed to open %s", __FUNCTION__, name);
-#endif
+    /* There are a lot of reasons to fail:
+     * - too old kernel does not know this parameter;
+     * - we are in chroot, and/or /proc is not mounted;
+     * - we are in non-default net namespace: depending on the kernel
+     *   version, we'll get a different subset of parameters available.
+     */
     return fd;
   }
   buflen = ci_sys_read(fd, buf, sizeof(buf));
@@ -389,96 +371,92 @@ ci_setup_ipstack_params(void)
   if (citp_ipstack_params_inited)
     return 0;
 
-  /* Set up default values in case something goes wrong */
-  ci_setup_ipstack_params_default();
-
-  /* If /proc is not valid, we go away. */
-  if (ci_sysctl_get_values("net/ipv4/ip_forward", opt, 1, 1) != 0)
-    return -1;
-
+  {
+    int fd = ci_sys_open(CI_CFG_PROC_PATH"net/ipv4", O_RDONLY | O_DIRECTORY);
+    if( fd < 0 ) {
+      ci_log("ERROR: failed to open "CI_CFG_PROC_PATH"net/ipv4");
+      return -1;
+    }
+    close(fd);
+  }
   /* We will re-read following values in kernel mode for every socket,
    * but we need them before the first socket is initialized. */
-  if( ci_sysctl_get_values("net/ipv4/tcp_wmem", opt, 3, 0) != 0 )
-    return -1;
-  citp_tcp_sndbuf_min = CI_CFG_TCP_SNDBUF_MIN;
-  citp_tcp_sndbuf_def = opt[1];
-  citp_tcp_sndbuf_max = opt[2];
-  if( ci_sysctl_get_values("net/ipv4/tcp_rmem", opt, 3, 0) != 0 )
-    return -1;
-  citp_tcp_rcvbuf_min = CI_CFG_TCP_RCVBUF_MIN;
-  citp_tcp_rcvbuf_def = opt[1];
-  citp_tcp_rcvbuf_max = opt[2];
-  if( ci_sysctl_get_values("net/core/wmem_max", opt, 1, 0) != 0 )
-    return -1;
-  citp_udp_sndbuf_max = opt[0];
-  if( ci_sysctl_get_values("net/core/wmem_default", opt, 1, 0) != 0 )
-    return -1;
-  citp_udp_sndbuf_def = opt[0];
-  if( ci_sysctl_get_values("net/core/rmem_max", opt, 1, 0) != 0 )
-    return -1;
-  citp_udp_rcvbuf_max = opt[0];
-  if( ci_sysctl_get_values("net/core/rmem_default", opt, 1, 0) != 0 )
-    return -1;
-  citp_udp_rcvbuf_def = opt[0];
+  if( ci_sysctl_get_values("net/ipv4/tcp_wmem", opt, 3) == 0 ) {
+    /* CI_CFG_TCP_SNDBUF_MIN is used */
+    citp_tcp_sndbuf_def = opt[1];
+    citp_tcp_sndbuf_max = opt[2];
+  }
+  if( ci_sysctl_get_values("net/ipv4/tcp_rmem", opt, 3) == 0 ) {
+    /* CI_CFG_TCP_RCVBUF_MIN is used */
+    citp_tcp_rcvbuf_def = opt[1];
+    citp_tcp_rcvbuf_max = opt[2];
+  }
+  if( ci_sysctl_get_values("net/core/wmem_max", opt, 1) == 0 )
+    citp_udp_sndbuf_max = opt[0];
+  if( ci_sysctl_get_values("net/core/wmem_default", opt, 1) == 0 )
+    citp_udp_sndbuf_def = opt[0];
+  if( ci_sysctl_get_values("net/core/rmem_max", opt, 1) == 0 )
+    citp_udp_rcvbuf_max = opt[0];
+  if( ci_sysctl_get_values("net/core/rmem_default", opt, 1) == 0 )
+    citp_udp_rcvbuf_def = opt[0];
 
-  if (ci_sysctl_get_values("net/ipv4/tcp_max_syn_backlog", opt, 1, 0) != 0)
-    return -1;
-  citp_tcp_backlog_max = opt[0];
+  if (ci_sysctl_get_values("net/ipv4/tcp_max_syn_backlog", opt, 1) == 0)
+    citp_tcp_backlog_max = opt[0];
 
   /* We should not use non-zero winscale if tcp_adv_win_scale == 0 */
-  if (ci_sysctl_get_values("net/ipv4/tcp_adv_win_scale", opt, 1, 0) != 0)
-    return -1;
-  citp_tcp_adv_win_scale_max = CI_MIN(CI_TCP_WSCL_MAX, 3 * opt[0]);
+  if (ci_sysctl_get_values("net/ipv4/tcp_adv_win_scale", opt, 1) == 0)
+    citp_tcp_adv_win_scale_max = CI_MIN(CI_TCP_WSCL_MAX, 3 * opt[0]);
 
   /* Get fin_timeout value from Linux if it is possible */
-  if (ci_sysctl_get_values("net/ipv4/tcp_fin_timeout", opt, 1, 0) != 0)
-    return -1;
-  citp_fin_timeout = opt[0];
+  if (ci_sysctl_get_values("net/ipv4/tcp_fin_timeout", opt, 1) == 0)
+    citp_fin_timeout = opt[0];
 
   /* Number of retransmits */
-  if (ci_sysctl_get_values("net/ipv4/tcp_retries2", opt, 1, 0) != 0)
-    return -1;
-  citp_retransmit_threshold = opt[0];
-  if (ci_sysctl_get_values("net/ipv4/tcp_orphan_retries", opt, 1, 0) != 0)
-    return -1;
+  if (ci_sysctl_get_values("net/ipv4/tcp_retries2", opt, 1) == 0)
+    citp_retransmit_threshold = opt[0];
   /* tcp_orphan_retries is usually 0, but Linux uses value 8 internally in
    * such a case.  See linux/net/ipv4/tcp_timer.c: tcp_orphan_retries()
    * for details. */
-  if( opt[0] > 0 )
+  if (ci_sysctl_get_values("net/ipv4/tcp_orphan_retries", opt, 1) == 0 &&
+      opt[0] > 0 ) {
     citp_retransmit_threshold_orphan = opt[0];
-  if (ci_sysctl_get_values("net/ipv4/tcp_syn_retries", opt, 1, 0) != 0)
-    return -1;
-  citp_retransmit_threshold_syn = opt[0];
-  if (ci_sysctl_get_values("net/ipv4/tcp_synack_retries", opt, 1, 0) != 0)
-    return -1;
-  citp_retransmit_threshold_synack = opt[0];
+  }
+  if (ci_sysctl_get_values("net/ipv4/tcp_syn_retries", opt, 1) == 0)
+    citp_retransmit_threshold_syn = opt[0];
+  if (ci_sysctl_get_values("net/ipv4/tcp_synack_retries", opt, 1) == 0)
+    citp_retransmit_threshold_synack = opt[0];
 
   /* Keepalive parameters */
-  if (ci_sysctl_get_values("net/ipv4/tcp_keepalive_probes", opt, 1, 0) != 0)
-    return -1;
-  citp_keepalive_probes = opt[0];
+  if (ci_sysctl_get_values("net/ipv4/tcp_keepalive_probes", opt, 1) == 0)
+    citp_keepalive_probes = opt[0];
   /* These values are stored in secs, we scale to ms here */
-  if (ci_sysctl_get_values("net/ipv4/tcp_keepalive_time", opt, 1, 0) != 0)
-    return -1;
-  citp_keepalive_time = opt[0] * 1000;
-  if (ci_sysctl_get_values("net/ipv4/tcp_keepalive_intvl", opt, 1, 0) != 0)
-    return -1;
-  citp_keepalive_intvl = opt[0] * 1000;
+  if (ci_sysctl_get_values("net/ipv4/tcp_keepalive_time", opt, 1) == 0)
+    citp_keepalive_time = opt[0] * 1000;
+  if (ci_sysctl_get_values("net/ipv4/tcp_keepalive_intvl", opt, 1) == 0)
+    citp_keepalive_intvl = opt[0] * 1000;
 
   /* SYN options */
-  if (ci_sysctl_get_values("net/ipv4/tcp_sack", opt, 1, 0) != 0)
-    return -1;
-  citp_tcp_sack = opt[0];
-  if (ci_sysctl_get_values("net/ipv4/tcp_timestamps", opt, 1, 0) != 0)
-    return -1;
-  citp_tcp_timestamps = opt[0];
-  if (ci_sysctl_get_values("net/ipv4/tcp_window_scaling", opt, 1, 0) != 0)
-    return -1;
-  citp_tcp_window_scaling = opt[0];
+  if (ci_sysctl_get_values("net/ipv4/tcp_sack", opt, 1) == 0) {
+    if( opt[0] )
+      citp_syn_opts |= CI_TCPT_FLAG_SACK;
+    else
+      citp_syn_opts &=~ CI_TCPT_FLAG_SACK;
+  }
+  if (ci_sysctl_get_values("net/ipv4/tcp_timestamps", opt, 1) == 0) {
+    if( opt[0] )
+      citp_syn_opts |= CI_TCPT_FLAG_TSO;
+    else
+      citp_syn_opts &=~ CI_TCPT_FLAG_TSO;
+  }
+  if (ci_sysctl_get_values("net/ipv4/tcp_window_scaling", opt, 1) == 0) {
+    if( opt[0] )
+      citp_syn_opts |= CI_TCPT_FLAG_WSCL;
+    else
+      citp_syn_opts &=~ CI_TCPT_FLAG_WSCL;
+  }
 
-  if (ci_sysctl_get_values("net/ipv4/tcp_dsack", opt, 1, 0) != 0)
-    return -1;
-  citp_tcp_dsack = opt[0];
+  if (ci_sysctl_get_values("net/ipv4/tcp_dsack", opt, 1) == 0)
+    citp_tcp_dsack = opt[0];
 
   citp_ipstack_params_inited = 1;
   return 0;
@@ -489,11 +467,6 @@ ci_setup_ipstack_params(void)
 int
 ci_setup_ipstack_params(void)
 {
-  /*
-   * XXX need an implementation.
-   */
-
-  ci_setup_ipstack_params_default();
   citp_ipstack_params_inited = 0;
   return 0;
 }
@@ -506,9 +479,15 @@ void ci_netif_config_opts_defaults(ci_netif_config_opts* opts)
 # undef  CI_CFG_OPTFILE_VERSION
 # undef  CI_CFG_OPTGROUP
 # undef  CI_CFG_OPT
+# undef  CI_CFG_STR_OPT
 # define CI_CFG_OPT(env, name, type, doc, type_modifider, group,     \
                     default, minimum, maximum, presentation)	      \
   opts->name = default;
+
+# define CI_CFG_STR_OPT(env, name, type, doc, type_modifider, group,   \
+                        default, minimum, maximum, presentation)       \
+  strncpy(opts->name, default, sizeof(opts->name));                    \
+  opts->name[sizeof(opts->name) - 1] = 0;
 
 # include <ci/internal/opts_netif_def.h>
 
@@ -542,9 +521,7 @@ void ci_netif_config_opts_defaults(ci_netif_config_opts* opts)
     opts->keepalive_time = citp_keepalive_time;
     opts->keepalive_intvl = citp_keepalive_intvl;
 
-    opts->syn_opts = (citp_tcp_sack ? CI_TCPT_FLAG_SACK : 0) |
-        (citp_tcp_timestamps ? CI_TCPT_FLAG_TSO : 0) |
-        (citp_tcp_window_scaling ? CI_TCPT_FLAG_WSCL : 0);
+    opts->syn_opts = citp_syn_opts;
     opts->use_dsack = citp_tcp_dsack;
     opts->inited = CI_TRUE;
   }
@@ -566,6 +543,7 @@ void ci_netif_config_opts_rangecheck(ci_netif_config_opts* opts)
 #undef  CI_CFG_OPTFILE_VERSION
 #undef  CI_CFG_OPTGROUP
 #undef  CI_CFG_OPT
+#undef  CI_CFG_STR_OPT
 
 #define _CI_CFG_BITVAL   _optbits
 #define _CI_CFG_BITVAL1  1
@@ -583,6 +561,8 @@ void ci_netif_config_opts_rangecheck(ci_netif_config_opts* opts)
     
 #define CI_CFG_REDRESS(opt, val) opt = val;
 #define CI_CFG_MSG "ERROR"
+
+#define CI_CFG_STR_OPT(...)
 
 #define CI_CFG_OPT(env, name, type, doc, bits, group, default, minimum, maximum, pres) \
 { type _val = opts->name;					          \
@@ -692,6 +672,10 @@ static void ci_netif_config_opts_getenv_ef_log(ci_netif_config_opts* opts)
 
 static void
 ci_netif_config_opts_getenv_ef_scalable_filters(ci_netif_config_opts* opts);
+
+static void
+handle_str_opt(ci_netif_config_opts* opts,
+               const char* optname, char* optval_buf, size_t optval_buflen);
 
 
 void ci_netif_config_opts_getenv(ci_netif_config_opts* opts)
@@ -816,7 +800,7 @@ void ci_netif_config_opts_getenv(ci_netif_config_opts* opts)
   if( (s = getenv("EF_TCP_SYN_OPTS")) ) {
     unsigned v;
     ci_verify(sscanf(s, "%x", &v) == 1);
-    opts->syn_opts = v;
+    opts->syn_opts = citp_syn_opts = v;
   }
 
   if ( (s = getenv("EF_MAX_PACKETS")) ) {
@@ -953,8 +937,6 @@ void ci_netif_config_opts_getenv(ci_netif_config_opts* opts)
     opts->tcp_rcvbuf_strict = atoi(s);
   if( (s = getenv("EF_TCP_RCVBUF_MODE")) )
     opts->tcp_rcvbuf_mode = atoi(s);
-  if( (s = getenv("EF_TCP_LISTEN_REPLIES_BACK")) )
-    opts->tcp_listen_replies_back = atoi(s);
   if( (s = getenv("EF_POLL_ON_DEMAND")) )
     opts->poll_on_demand = atoi(s);
   if( (s = getenv("EF_INT_REPRIME")) )
@@ -1143,6 +1125,14 @@ void ci_netif_config_opts_getenv(ci_netif_config_opts* opts)
     opts->rto_min = atoi(s);
   if ( (s = getenv("EF_RFC_RTO_MAX")))
     opts->rto_max = atoi(s);
+
+  if ( (s = getenv("EF_KEEPALIVE_TIME")))
+    opts->keepalive_time = atoi(s);
+  if ( (s = getenv("EF_KEEPALIVE_INTVL")))
+    opts->keepalive_intvl = atoi(s);
+  if ( (s = getenv("EF_KEEPALIVE_PROBES")))
+    opts->keepalive_probes = atoi(s);
+
 #ifndef NDEBUG
   if( (s = getenv("EF_TCP_MAX_SEQERR_MSGS")))
     opts->tcp_max_seqerr_msg = atoi(s);
@@ -1194,6 +1184,15 @@ void ci_netif_config_opts_getenv(ci_netif_config_opts* opts)
   if( (s = getenv("EF_TIMESTAMPING_REPORTING")) )
     opts->timestamping_reporting = atoi(s);
 
+  if( (s = getenv("EF_TCP_TSOPT_MODE")) ) {
+    opts->tcp_tsopt_mode = atoi(s);
+    if( !(opts->tcp_tsopt_mode == 2) ) {
+      citp_syn_opts &=~ CI_TCPT_FLAG_TSO;
+      citp_syn_opts |= (opts->tcp_tsopt_mode ? CI_TCPT_FLAG_TSO : 0);
+      opts->syn_opts = citp_syn_opts;
+    }
+  }
+
   if( (s = getenv("EF_TCP_SYNCOOKIES")) )
     opts->tcp_syncookies = atoi(s);
 
@@ -1217,9 +1216,28 @@ void ci_netif_config_opts_getenv(ci_netif_config_opts* opts)
   if( (s = getenv("EF_HIGH_THROUGHPUT_MODE")) )
     opts->rx_merge_mode = atoi(s);
 
+  handle_str_opt(opts, "EF_INTERFACE_WHITELIST", opts->iface_whitelist,
+                 sizeof(opts->iface_whitelist));
+  handle_str_opt(opts, "EF_INTERFACE_BLACKLIST", opts->iface_blacklist,
+                 sizeof(opts->iface_blacklist));
+
   ci_netif_config_opts_getenv_ef_scalable_filters(opts);
 }
 
+static void
+handle_str_opt(ci_netif_config_opts* opts,
+               const char* optname, char* optval_buf, size_t optval_buflen)
+{
+ char* s;
+  if( (s = getenv(optname)) ) {
+    if( strlen(s) >= optval_buflen ) {
+      CONFIG_LOG(opts, CONFIG_WARNINGS, "Value of %s"
+                 "too long - truncating. ", optname);
+    }
+    strncpy(optval_buf, s, optval_buflen);
+    optval_buf[optval_buflen - 1] = 0;
+  }
+}
 
 static void
 ci_netif_config_opts_getenv_ef_scalable_filters(ci_netif_config_opts* opts)
@@ -1351,18 +1369,20 @@ void ci_netif_config_opts_dump(ci_netif_config_opts* opts)
   const ci_netif_config_opts defaults = {
     #undef CI_CFG_OPTFILE_VERSION
     #undef CI_CFG_OPT
+    #undef CI_CFG_STR_OPT
     #undef CI_CFG_OPTGROUP
 
     #define CI_CFG_OPTFILE_VERSION(version)
     #define CI_CFG_OPTGROUP(group, category, expertise)
     #define CI_CFG_OPT(env, name, type, doc, bits, group, default, min, max, presentation) \
             default,
-
+    #define CI_CFG_STR_OPT CI_CFG_OPT
     #include <ci/internal/opts_netif_def.h>
   };
 
   #undef CI_CFG_OPTFILE_VERSION
   #undef CI_CFG_OPT
+  #undef CI_CFG_STR_OPT
   #undef CI_CFG_OPTGROUP
 
   #define ci_uint32_fmt   "%u"
@@ -1370,6 +1390,7 @@ void ci_netif_config_opts_dump(ci_netif_config_opts* opts)
   #define ci_int32_fmt    "%d"
   #define ci_int16_fmt    "%d"
   #define ci_iptime_t_fmt "%u"
+  #define ci_string256_fmt "\"%s\""
 
   #define CI_CFG_OPTFILE_VERSION(version)
   #define CI_CFG_OPTGROUP(group, category, expertise)
@@ -1381,6 +1402,16 @@ void ci_netif_config_opts_dump(ci_netif_config_opts* opts)
         ci_log("%30s: " type##_fmt " (default: " type##_fmt")", env,    \
                opts->name, defaults.name);                              \
     }
+
+  #define CI_CFG_STR_OPT(env, name, type, doc, bits, group, default, min, max, presentation) \
+    if( strlen(env) != 0 ) {                                            \
+      if( strcmp(opts->name, defaults.name) == 0 )                                 \
+        ci_log("%30s: " type##_fmt, env, opts->name);                   \
+      else                                                              \
+        ci_log("%30s: " type##_fmt " (default: " type##_fmt")", env,    \
+               opts->name, defaults.name);                              \
+    }
+
 
   ci_log("                        NDEBUG: %d", ! IS_DEBUG);
   #include <ci/internal/opts_netif_def.h>
@@ -1812,6 +1843,8 @@ netif_tcp_helper_restore(ci_netif* ni, unsigned netif_mmap_bytes)
   return rc;
 }
 
+static void ci_netif_deinit(ci_netif* ni);
+
 #endif
 
 
@@ -1822,14 +1855,14 @@ ci_inline void netif_tcp_helper_free(ci_netif* ni)
 #else
   if( ni->state != NULL )
     netif_tcp_helper_munmap(ni);
+  ci_netif_deinit(ni);
 #endif
 }
 
 
 static void init_resource_alloc(ci_resource_onload_alloc_t* ra,
                                 const ci_netif_config_opts* opts,
-                                unsigned flags, const char* name,
-                                ci_fixed_descriptor_t cplane_handle)
+                                unsigned flags, const char* name)
 {
   memset(ra, 0, sizeof(*ra));
   CI_USER_PTR_SET(ra->in_opts, opts);
@@ -1849,7 +1882,6 @@ static void init_resource_alloc(ci_resource_onload_alloc_t* ra,
 #endif
   if( name != NULL )
     strncpy(ra->in_name, name, CI_CFG_STACK_NAME_LEN);
-  ra->cplane_handle = cplane_handle;
 }
 
 
@@ -1934,7 +1966,7 @@ netif_tcp_helper_alloc_u(ef_driver_handle fd, ci_netif* ni,
   /****************************************************************************
    * Allocate the TCP Helper resource.
    */
-  init_resource_alloc(&ra, opts, flags, stack_name, ni->cplane->fd);
+  init_resource_alloc(&ra, opts, flags, stack_name);
 
   rc = oo_resource_alloc(fd, &ra);
   if( rc < 0 ) {
@@ -2047,7 +2079,7 @@ netif_tcp_helper_alloc_k(ci_netif** ni_out, const ci_netif_config_opts* opts,
   ci_netif* ni;
   int rc;
 
-  init_resource_alloc(&ra, opts, flags, NULL, -1);
+  init_resource_alloc(&ra, opts, flags, NULL);
   rc = tcp_helper_alloc_kernel(&ra, opts, ifindices_len, &trs);
   if( rc < 0 ) {
     ci_log("%s: tcp_helper_alloc_kernel() failed (%d)", __FUNCTION__, rc);
@@ -2220,20 +2252,36 @@ void ci_netif_cluster_prefault(ci_netif* ni)
   ci_netif_pkt_prefault(ni);
 }
 
-int ci_netif_init(ci_netif* ni, ef_driver_handle fd)
+static int ci_netif_init(ci_netif* ni, ef_driver_handle fd)
 {
+  int rc;
+
   ni->driver_handle = fd;
   CI_MAGIC_SET(ni, NETIF_MAGIC);
   ni->flags = 0;
   ni->error_flags = 0;
 
-  ni->cplane = cicp_get_handle(CPLANE_API_VERSION, -1, CITP_OPTS.fd_base);
-  if( ni->cplane == NULL ) {
-    LOG_S(ci_log("%s: failed to get control plane handle", __func__));
-    return -EINVAL;
+  ni->cplane = malloc(sizeof(struct oo_cplane_handle));
+  if( ni->cplane == NULL )
+    return -ENOMEM;
+
+  rc = oo_cp_create(fd, ni->cplane);
+  if( rc != 0 ) {
+    ci_log("%s: failed to get control plane handle: %d", __func__, rc);
+    goto fail;
   }
 
   return 0;
+
+ fail:
+  free(ni->cplane);
+  return rc;
+}
+
+static void ci_netif_deinit(ci_netif* ni)
+{
+  oo_cp_destroy(ni->cplane);
+  free(ni->cplane);
 }
 
 int ci_netif_ctor(ci_netif* ni, ef_driver_handle fd, const char* stack_name,
@@ -2263,8 +2311,10 @@ int ci_netif_ctor(ci_netif* ni, ef_driver_handle fd, const char* stack_name,
   /***************************************
   * Allocate kernel helper and link into netif
   */
-  if( (rc = netif_tcp_helper_alloc_u(fd, ni, opts, flags, stack_name)) < 0 )
+  if( (rc = netif_tcp_helper_alloc_u(fd, ni, opts, flags, stack_name)) < 0 ) {
+    ci_netif_deinit(ni);
     return rc;
+  }
 
   ci_netif_pkt_prefault_reserve(ni);
   ci_netif_pkt_prefault(ni);
@@ -2570,26 +2620,12 @@ int ci_netif_restore(ci_netif* ni, ef_driver_handle fd,
   
   LOG_NV(ci_log("%s: fd=%d", __FUNCTION__, fd));
 
-  /* Ignore error: we'll try to restore cplane handle later */
-  (void)ci_netif_init(ni, fd);
+  CI_TRY_RET(ci_netif_init(ni, fd));
 
-  CI_TRY_RET(netif_tcp_helper_restore(ni, netif_mmap_bytes));
-
-  if( ni->cplane == NULL ) {
-    ci_fixed_descriptor_t fd;
-    /* Try to get cplane handle out of the restored netif. */
-    rc = oo_resource_op(ci_netif_get_driver_handle(ni),
-                        OO_IOC_GET_CPLANE_FD, &fd);
-    if( rc < 0 ) {
-      ci_log("%s: failed to restore control plane handle: %d", __func__, rc);
-      goto fail;
-    }
-
-    ni->cplane = cicp_get_handle(CPLANE_API_VERSION, fd, CITP_OPTS.fd_base);
-    if( ni->cplane == NULL ) {
-      ci_log("%s: failed to restore control plane handle", __func__);
-      goto fail;
-    }
+  if( (rc = netif_tcp_helper_restore(ni, netif_mmap_bytes)) != 0) {
+    ci_netif_deinit(ni);
+    ci_log("netif_tcp_helper_restore returned %d at %s:%d", rc, __FILE__, __LINE__); \
+    return rc;
   }
 
   /* We do not want this stack to be used as default */
@@ -2600,9 +2636,6 @@ int ci_netif_restore(ci_netif* ni, ef_driver_handle fd,
    * when used.
    */
 
-  return rc;
- fail:
-  netif_tcp_helper_munmap(ni);
   return rc;
 }
 

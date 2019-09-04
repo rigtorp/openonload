@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -174,7 +174,7 @@ efab_fop_poll__prime_if_needed(tcp_helper_resource_t* trs,
       OO_DEBUG_ASYNC(ci_log("%s: [%d:%d] enable interrupts",
                             __FUNCTION__, trs->id, ep->id));
       tcp_helper_request_wakeup(trs);
-      CITP_STATS_NETIF_INC(&trs->netif, select_primes);
+      CITP_STATS_NETIF_INC(&trs->netif, muxer_primes);
     }
   }
 }
@@ -1581,7 +1581,8 @@ static void efab_os_wakeup_event(tcp_helper_endpoint_t *ep,
 /* This function is a handler for events on the OS socket.  It is called by
  * Linux function __wake_up after spin_lock_irqsave(), so all this code
  * should be ready to work with the interrupts turned off. */
-int efab_os_sock_callback(wait_queue_t *wait, unsigned mode, int sync, void *key)
+int efab_os_sock_callback(wait_queue_entry_t *wait, unsigned mode,
+                          int sync, void *key)
 {
   tcp_helper_endpoint_t *ep = container_of(wait,
                                            tcp_helper_endpoint_t,

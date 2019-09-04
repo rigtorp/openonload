@@ -4,7 +4,7 @@ SUBDIRS := static \
 STATIC_MMAKE_OBJ_PREFIX := static/
 SHARED_MMAKE_OBJ_PREFIX := shared/
 
-TEST_APPS := zfsink zfudppingpong zftcppingpong zfaltpingpong zftcpmtpong
+TEST_APPS := zfsink zfudppingpong zftcppingpong zfaltpingpong zftcpmtpong zfdelegated_client
 
 # build static as well as shared library version of each app
 STATIC_TARGETS := $(TEST_APPS:%=static/$(AppPattern))

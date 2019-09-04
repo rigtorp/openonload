@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -78,6 +78,18 @@ int onload_stack_opt_set_int(const char* opt, int64_t val)
 
 __attribute__((weak))
 int onload_stack_opt_get_int(const char* opt, int64_t* val)
+{
+  return -ENOSYS;
+}
+
+__attribute__((weak))
+int onload_stack_opt_set_str(const char* opt, const char* val)
+{
+  return 0;
+}
+
+__attribute__((weak)) int
+onload_stack_opt_get_str(const char* opt, char* val_out, size_t* val_out_len)
 {
   return -ENOSYS;
 }
@@ -258,6 +270,13 @@ onload_get_tcp_info(int fd, struct onload_tcp_info* info, int* len_in_out)
 __attribute__((weak))
 int
 onload_socket_nonaccel(int domain, int type, int protocol)
+{
+  return socket(domain, type, protocol);
+}
+
+__attribute__((weak))
+int
+onload_socket_unicast_nonaccel(int domain, int type, int protocol)
 {
   return socket(domain, type, protocol);
 }

@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -183,6 +183,12 @@ enum ef_vi_capability {
   /** Number of TX alternatives common pool buffers */
   EF_VI_CAP_TX_ALTERNATIVES_CP_BUFFERS,
 
+  /** RX firmware variant */
+  EF_VI_CAP_RX_FW_VARIANT,
+
+  /** TX firmware variant */
+  EF_VI_CAP_TX_FW_VARIANT,
+
   /** Maximum value of capabilities enumeration */
   EF_VI_CAP_MAX, /* Keep this last */
 };
@@ -221,7 +227,7 @@ ef_vi_capabilities_get(ef_driver_handle handle, int ifindex,
 ** ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~{.c}
 ** max = ef_vi_capabilities_max();
 ** for( cap = 0; cap <= max; ++cap ) {
-**   rc = ef_vi_capabilities_get(ifindex, cap, &val);
+**   rc = ef_vi_capabilities_get(driver_handle, ifindex, cap, &val);
 **   if( rc == 0 ) printf("%s %d\n", ef_vi_capabilities_name(cap), val);
 ** }
 ** ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

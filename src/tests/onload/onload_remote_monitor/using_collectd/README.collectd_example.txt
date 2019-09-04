@@ -8,10 +8,9 @@ possible.
    is provided in
    src/tests/onload/onload_remote_monitor/using_collectd/collectd_example.conf
 3. Run the Onload Remote Monitor web server on the server you wish to monitor:
-   cd <onload_dir>/src/tools/onload_remote_monitor
-   python ./orm_webserver 9000 # this runs on port 9000
+   orm_webserver 9000 # this runs on port 9000
 4. Check web service is running by pointing a browser to
-   http://<server-ip>:9000/onload/all/
+   http://<server-ip>:9000/onload/lots/
 5. Start (or restart) collectd to begin collecting Onload stack statistics.
 6. With the example configuration, collectd will automatically pick up
    additional Onload stacks as they are created.

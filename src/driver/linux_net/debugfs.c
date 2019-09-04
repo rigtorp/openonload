@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -16,7 +16,7 @@
 /****************************************************************************
  * Driver for Solarflare network controllers and boards
  * Copyright 2005-2006 Fen Systems Ltd.
- * Copyright 2006-2015 Solarflare Communications Inc.
+ * Copyright 2006-2017 Solarflare Communications Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published
@@ -102,7 +102,11 @@ static int efx_debugfs_seq_show(struct seq_file *file, void *v)
 
 	rtnl_lock();
 	structure = binding->get_struct(binding->ref, binding->index);
-	rc = binding->param->reader(file, structure + binding->param->offset);
+	if (structure)
+		rc = binding->param->reader(file,
+					    structure + binding->param->offset);
+	else
+		rc = -EINVAL;
 	rtnl_unlock();
 	return rc;
 }
@@ -501,10 +505,8 @@ static struct efx_debugfs_parameter efx_debugfs_tx_queue_parameters[] = {
 static void *efx_debugfs_get_tx_queue(void *ref, unsigned int index)
 {
 	struct efx_nic *efx = ref;
-	struct efx_channel *channel =
-		efx_get_tx_channel(efx, index / efx->tx_queues_per_channel);
 
-	return &channel->tx_queue[index % efx->tx_queues_per_channel];
+	return efx_get_tx_queue_from_index(efx, index);
 }
 
 static void efx_fini_debugfs_tx_queue(struct efx_tx_queue *tx_queue);
@@ -772,14 +774,6 @@ static int efx_nic_debugfs_read_desc(struct seq_file *file, void *data)
 	const char *rev_name;
 
 	switch (efx_nic_rev(efx)) {
-#ifndef CONFIG_SFC_FALCON
-	case EFX_REV_FALCON_A1:
-		rev_name = "Falcon rev A1";
-		break;
-	case EFX_REV_FALCON_B0:
-		rev_name = "Falcon rev B0";
-		break;
-#endif
 	case EFX_REV_SIENA_A0:
 		rev_name = "Siena rev A0";
 		break;
@@ -1030,3 +1024,128 @@ void efx_fini_debugfs(void)
 	debugfs_remove(efx_debug_root);
 	efx_debug_root = NULL;
 }
+
+#ifdef EFX_NOT_UPSTREAM
+int efx_debugfs_read_kernel_blocked(struct seq_file *file, void *data)
+{
+	unsigned int i;
+	bool *kernel_blocked = data;
+
+	for (i = 0; i < EFX_DL_FILTER_BLOCK_KERNEL_MAX; i++)
+		seq_printf(file, "%u:%d\n", i, kernel_blocked[i]);
+	return 0;
+}
+#endif
+
+void efx_debugfs_print_filter(char *s, size_t l, struct efx_filter_spec *spec)
+{
+	int p = snprintf(s, l, "match=%#x,pri=%d,flags=%#x,q=%d",
+			 spec->match_flags, spec->priority, spec->flags,
+			 spec->dmaq_id);
+
+	if (spec->stack_id)
+		p += snprintf(s + p, l - p, ",stack=%#x",
+			      spec->stack_id);
+	if (spec->vport_id)
+		p += snprintf(s + p, l - p, ",vport=%#x",
+			      spec->vport_id);
+
+	if (spec->flags & EFX_FILTER_FLAG_RX_RSS) {
+		if (spec->rss_context == -1)
+			p += snprintf(s + p, l - p, ",rss=def");
+		else
+			p += snprintf(s + p, l - p, ",rss=%#x",
+				      spec->rss_context);
+	}
+
+	if (spec->match_flags & EFX_FILTER_MATCH_OUTER_VID)
+		p += snprintf(s + p, l - p,
+			      ",ovid=%d", ntohs(spec->outer_vid));
+	if (spec->match_flags & EFX_FILTER_MATCH_INNER_VID)
+		p += snprintf(s + p, l - p,
+			      ",ivid=%d", ntohs(spec->inner_vid));
+	if (spec->match_flags & EFX_FILTER_MATCH_ENCAP_TYPE)
+		p += snprintf(s + p, l - p,
+			      ",encap=%d", spec->encap_type);
+	if (spec->match_flags & EFX_FILTER_MATCH_ENCAP_TNI)
+		p += snprintf(s + p, l - p,
+			      ",tni=%#x", spec->tni);
+	if (spec->match_flags & EFX_FILTER_MATCH_LOC_MAC)
+		p += snprintf(s + p, l - p,
+			      ",lmac=%02x:%02x:%02x:%02x:%02x:%02x",
+			      spec->loc_mac[0], spec->loc_mac[1],
+			      spec->loc_mac[2], spec->loc_mac[3],
+			      spec->loc_mac[4], spec->loc_mac[5]);
+	if (spec->match_flags & EFX_FILTER_MATCH_REM_MAC)
+		p += snprintf(s + p, l - p,
+			      ",rmac=%02x:%02x:%02x:%02x:%02x:%02x",
+			      spec->rem_mac[0], spec->rem_mac[1],
+			      spec->rem_mac[2], spec->rem_mac[3],
+			      spec->rem_mac[4], spec->rem_mac[5]);
+	if (spec->match_flags & EFX_FILTER_MATCH_OUTER_LOC_MAC)
+		p += snprintf(s + p, l - p,
+			      ",olmac=%02x:%02x:%02x:%02x:%02x:%02x",
+			      spec->outer_loc_mac[0], spec->outer_loc_mac[1],
+			      spec->outer_loc_mac[2], spec->outer_loc_mac[3],
+			      spec->outer_loc_mac[4], spec->outer_loc_mac[5]);
+	if (spec->match_flags & EFX_FILTER_MATCH_ETHER_TYPE)
+		p += snprintf(s + p, l - p,
+			      ",ether=%#x", ntohs(spec->ether_type));
+	if (spec->match_flags & EFX_FILTER_MATCH_IP_PROTO)
+		p += snprintf(s + p, l - p,
+			      ",ippr=%#x", spec->ip_proto);
+	if (spec->match_flags & EFX_FILTER_MATCH_LOC_HOST) {
+		if (ntohs(spec->ether_type) == ETH_P_IP)
+			p += snprintf(s + p, l - p,
+				      ",lip=%d.%d.%d.%d",
+				      spec->loc_host[0] & 0xff,
+				      (spec->loc_host[0] >> 8) & 0xff,
+				      (spec->loc_host[0] >> 16) & 0xff,
+				      (spec->loc_host[0] >> 24) & 0xff);
+		else if (ntohs(spec->ether_type) == ETH_P_IPV6)
+			p += snprintf(s + p, l - p,
+				      ",lip=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
+				      spec->loc_host[0] & 0xffff,
+				      (spec->loc_host[0] >> 16) & 0xffff,
+				      spec->loc_host[1] & 0xffff,
+				      (spec->loc_host[1] >> 16) & 0xffff,
+				      spec->loc_host[2] & 0xffff,
+				      (spec->loc_host[2] >> 16) & 0xffff,
+				      spec->loc_host[3] & 0xffff,
+				      (spec->loc_host[3] >> 16) & 0xffff);
+		else
+			p += snprintf(s + p, l - p, ",lip=?");
+	}
+	if (spec->match_flags & EFX_FILTER_MATCH_REM_HOST) {
+		if (ntohs(spec->ether_type) == ETH_P_IP)
+			p += snprintf(s + p, l - p,
+				      ",rip=%d.%d.%d.%d",
+				      spec->rem_host[0] & 0xff,
+				      (spec->rem_host[0] >> 8) & 0xff,
+				      (spec->rem_host[0] >> 16) & 0xff,
+				      (spec->rem_host[0] >> 24) & 0xff);
+		else if (ntohs(spec->ether_type) == ETH_P_IPV6)
+			p += snprintf(s + p, l - p,
+				      ",rip=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
+				      spec->rem_host[0] & 0xffff,
+				      (spec->rem_host[0] >> 16) & 0xffff,
+				      spec->rem_host[1] & 0xffff,
+				      (spec->rem_host[1] >> 16) & 0xffff,
+				      spec->rem_host[2] & 0xffff,
+				      (spec->rem_host[2] >> 16) & 0xffff,
+				      spec->rem_host[3] & 0xffff,
+				      (spec->rem_host[3] >> 16) & 0xffff);
+		else
+			p += snprintf(s + p, l - p, ",rip=?");
+	}
+	if (spec->match_flags & EFX_FILTER_MATCH_LOC_PORT)
+		p += snprintf(s + p, l - p,
+			      ",lport=%d", ntohs(spec->loc_port));
+	if (spec->match_flags & EFX_FILTER_MATCH_REM_PORT)
+		p += snprintf(s + p, l - p,
+			      ",rport=%d", ntohs(spec->rem_port));
+	if (spec->match_flags & EFX_FILTER_MATCH_LOC_MAC_IG)
+		p += snprintf(s + p, l - p, ",%s",
+			      spec->loc_mac[0] ? "mc" : "uc");
+}
+

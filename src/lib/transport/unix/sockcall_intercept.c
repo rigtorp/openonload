@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -823,16 +823,13 @@ OO_INTERCEPT(ssize_t, recvmsg,
 int ci_sys_recvmmsg(int fd, struct mmsghdr* mmsg, unsigned vlen,
                     int flags, const struct timespec* timeout)
 {
-  static int (*sys_recvmmsg)(int, struct mmsghdr*, unsigned, int,
-                             const struct timespec*);
-
-  if( sys_recvmmsg == NULL )
-    if( (sys_recvmmsg = dlsym(RTLD_NEXT, "recvmmsg")) == NULL ) {
-      errno = ENOSYS;
-      return -1;
-    }
-
-  return sys_recvmmsg(fd, mmsg, vlen, flags, timeout);
+#  ifdef __NR_recvmmsg 
+  return syscall(__NR_recvmmsg, fd, mmsg, vlen, flags, timeout);
+#  else
+  int rc;
+  CI_SET_ERROR(rc, ENOSYS);
+  return rc;
+#  endif
 }
 # endif
 
@@ -1010,15 +1007,13 @@ OO_INTERCEPT(ssize_t, sendmsg,
 int ci_sys_sendmmsg(int fd, struct mmsghdr* mmsg, unsigned vlen,
                     int flags)
 {
-  static int (*sys_sendmmsg)(int, struct mmsghdr*, unsigned, int);
-
-  if( sys_sendmmsg == NULL )
-    if( (sys_sendmmsg = dlsym(RTLD_NEXT, "sendmmsg")) == NULL ) {
-      errno = ENOSYS;
-      return -1;
-    }
-
-  return sys_sendmmsg(fd, mmsg, vlen, flags);
+#  ifdef __NR_sendmmsg
+  return syscall(__NR_sendmmsg, fd, mmsg, vlen, flags);
+#  else
+  int rc;
+  CI_SET_ERROR(rc, ENOSYS);
+  return rc;
+#  endif
 }
 # endif
 
@@ -1466,6 +1461,9 @@ OO_INTERCEPT(int, epoll_wait,
     Log_CALL_RESULT(rc);
     return rc;
   }
+  else {
+    citp_exit_lib(&lib_context, TRUE);
+  }
 
 error:
   Log_PT(log("PT: sys_epoll_wait(%d, %p, %d, %d)", epfd, events,
@@ -1511,6 +1509,9 @@ OO_INTERCEPT(int, epoll_pwait,
       goto error;
     Log_CALL_RESULT(rc);
     return rc;
+  }
+  else {
+    citp_exit_lib(&lib_context, TRUE);
   }
 
 error:
@@ -2593,7 +2594,7 @@ OO_INTERCEPT(int, bproc_move,
       /* This is slow (taking and releasing the FD table lock lots) but it
       ** works.
       */
-      fdinfo = citp_fdtable_lookup_noprobe(fd);
+      fdinfo = citp_fdtable_lookup_noprobe(fd, 0);
       if (fdinfo) {
         close(fd);
         citp_fdinfo_release_ref(fdinfo, 0);

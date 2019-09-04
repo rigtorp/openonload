@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -108,6 +108,7 @@
 #define ci_ip_addr_t_fmt "%u"
 #define ci_mtu_t_fmt "%u"
 #define ci_ifid_t_fmt "%d"
+#define cicp_hwport_mask_t_fmt "%u"
 #define cicp_encap_t_fmt "%u"
 #define ci_hwport_id_t_fmt "%u"
 #define ci_pkt_priority_t_fmt "%u"
@@ -116,6 +117,7 @@
 #define oo_sp_fmt "\"%p\"" /* pointer - typically 64 bit */
 #define oo_waitable_lock_fmt "%u"
 #define oo_atomic_t_fmt "%u"
+#define ci_string256_fmt "\"%s\""
 
 
 
@@ -284,6 +286,7 @@ static int orm_oo_opts_dump(ci_netif* ni)
 
 #undef CI_CFG_OPTFILE_VERSION
 #undef CI_CFG_OPT
+#undef CI_CFG_STR_OPT
 #undef CI_CFG_OPTGROUP
 
 #define CI_CFG_OPTFILE_VERSION(version)
@@ -292,6 +295,7 @@ static int orm_oo_opts_dump(ci_netif* ni)
   if( strlen(env) != 0 ) {                                              \
     dump_buf_cat("\"%s\": " type##_fmt ", ", env, opts->name);          \
   }
+#define CI_CFG_STR_OPT CI_CFG_OPT
 
 #include <ci/internal/opts_netif_def.h>
 

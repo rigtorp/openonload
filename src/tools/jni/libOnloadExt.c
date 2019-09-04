@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -46,6 +46,8 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/epoll.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include "extensions.h"
 #include "extensions_zc.h"
@@ -63,7 +65,7 @@ struct native_zc_userdata {
 	int fd;
 };
 
-static char* JNU_GetStringNativeChars(JNIEnv *env, jstring jstr);
+static int JNU_GetStringNativeChars(JNIEnv *env, jstring jstr, char**);
 
 JNIEXPORT jint JNICALL
 Java_OnloadExt_SaveStackName (JNIEnv* env, jclass cls)
@@ -84,12 +86,16 @@ Java_OnloadExt_SetStackOption (JNIEnv* env, jclass cls,
 				jstring option, jint opt_val )
 {
 	int64_t val = opt_val;
-	char* opt = JNU_GetStringNativeChars(env, option);
+	char* opt;
 	jint rval;
 	(void) cls;
 
+	rval = JNU_GetStringNativeChars(env, option, &opt);
+	if ( rval < 0 )
+		return rval;
+
 	if ( !opt )
-		return -EINVAL;
+		return -ENOMEM;
 
 	rval = (jint) onload_stack_opt_set_int( opt, val );
 	free(opt);
@@ -134,6 +140,7 @@ static int AreContstantsOk()
 	&& CHECK_CONSTANT(ONLOAD_THIS_THREAD)
 	&& CHECK_CONSTANT(ONLOAD_ALL_THREADS)
 	&& CHECK_CONSTANT(ONLOAD_SPIN_ALL)
+	&& CHECK_CONSTANT(ONLOAD_SPIN_MIMIC_EF_POLL)
 	&& CHECK_CONSTANT(ONLOAD_SPIN_UDP_RECV)
 	&& CHECK_CONSTANT(ONLOAD_SPIN_UDP_SEND)
 	&& CHECK_CONSTANT(ONLOAD_SPIN_TCP_RECV)
@@ -145,6 +152,8 @@ static int AreContstantsOk()
 	&& CHECK_CONSTANT(ONLOAD_SPIN_POLL)
 	&& CHECK_CONSTANT(ONLOAD_SPIN_PKT_WAIT)
 	&& CHECK_CONSTANT(ONLOAD_SPIN_EPOLL_WAIT)
+	&& CHECK_CONSTANT(ONLOAD_SPIN_SO_BUSY_POLL)
+	&& CHECK_CONSTANT(ONLOAD_SPIN_TCP_CONNECT)
 	&& CHECK_CONSTANT(ONLOAD_FD_FEAT_MSG_WARM)
 	&& CHECK_CONSTANT_ZC(ONLOAD_MSG_RECV_OS_INLINE)
 	&& CHECK_CONSTANT_ZC(ONLOAD_MSG_DONTWAIT)
@@ -221,7 +230,7 @@ static jstring JNU_NewStringNative(JNIEnv *env, const char *str)
 	return result;
 }
 
-static char* JNU_GetStringNativeChars(JNIEnv *env, jstring jstr)
+static int JNU_GetStringNativeChars(JNIEnv *env, jstring jstr, char** o_native)
 {
 	/* TODO: These should be cachable between invocations */
 	jclass Class_java_lang_String;
@@ -229,19 +238,20 @@ static char* JNU_GetStringNativeChars(JNIEnv *env, jstring jstr)
 	jthrowable exc;
 	jbyteArray bytes = 0;
 	char *result = 0;
-	
+	*o_native = NULL;
+
 	Class_java_lang_String = (*env)->FindClass(env,"java/lang/String");
 	if ( !Class_java_lang_String )
-		return NULL;
+		return -EFAULT;
 
 	MID_String_getBytes = (*env)->GetMethodID( env, Class_java_lang_String,
 							"getBytes", "()[B" );
 	if ( !MID_String_getBytes )
-		return NULL;
+		return -EFAULT;
 
 #if JNI_VERSION_1_2
 	if ((*env)->EnsureLocalCapacity(env, 2) < 0) {
-		return 0; /* out of memory error */
+		return -ENOMEM; /* out of memory error */
 	}
 #endif	/* JNI_VERSION_1_2 */
 	bytes = (*env)->CallObjectMethod(env, jstr, MID_String_getBytes);
@@ -250,9 +260,8 @@ static char* JNU_GetStringNativeChars(JNIEnv *env, jstring jstr)
 		jint len = (*env)->GetArrayLength(env, bytes);
 		result = (char *)malloc((size_t)len + 1);
 		if (result == 0) {
-			JNU_ThrowByName(env, "java/lang/OutOfMemoryError", 0);
 			(*env)->DeleteLocalRef(env, bytes);
-			return 0;
+			return -ENOMEM;
 		}
 		(*env)->GetByteArrayRegion(env, bytes, 0, len, (jbyte *)result);
 		result[len] = 0; /* NULL-terminate */
@@ -260,7 +269,8 @@ static char* JNU_GetStringNativeChars(JNIEnv *env, jstring jstr)
 		(*env)->DeleteLocalRef(env, exc);
 	}
 	(*env)->DeleteLocalRef(env, bytes);
-	return result;
+	*o_native = result;
+  return 0;
 }
 
 static jboolean IsInstanceOf( JNIEnv *env, jobject obj, char const* class_name )
@@ -537,7 +547,12 @@ Java_OnloadExt_SetStackName ( JNIEnv *env, jclass cls,
 	if( stackname == dont_accel )
 		rval = onload_set_stackname( who, scope, ONLOAD_DONT_ACCELERATE );
 	else {
-		char* native_stackname = JNU_GetStringNativeChars(env, stackname);
+		char* native_stackname;
+		int ok = JNU_GetStringNativeChars(env, stackname, &native_stackname);
+		if ( ok < 0 )
+			return ok;
+		if ( !native_stackname )
+			return -ENOMEM;
 		rval = onload_set_stackname( who, scope, native_stackname );
 		free( (void*) native_stackname );
 	}
@@ -668,6 +683,29 @@ Java_OnloadExt_MoveFd__Ljava_net_ServerSocket_2 (JNIEnv* env, jclass cls, jobjec
 {
   jint fd_val = GetFdFromUnknown( env, fd );
   return Java_OnloadExt_MoveFd__I(env, cls, fd_val);
+}
+
+
+JNIEXPORT jint JNICALL
+Java_OnloadExt_UnicastNonaccel_1 (JNIEnv* env, jclass cls, jobject fd)
+{
+  jint fd_val = GetFdFromUnknown( env, fd );
+  int new_sock =
+      onload_socket_unicast_nonaccel(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  int rc;
+  struct sockaddr addr;
+  socklen_t addrlen = sizeof(addr);
+  if( new_sock < 0 )
+    return -errno;
+  rc = getsockname(fd_val, &addr, &addrlen);
+  if( rc < 0 )
+    return -errno;
+
+  rc = dup2(new_sock, fd_val);
+  if( rc >= 0 )
+    rc = bind(new_sock, &addr, sizeof(addr));
+  close(new_sock);
+  return rc < 0 ? -errno : 0;
 }
 
 /* ******** */

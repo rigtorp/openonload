@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -14,7 +14,7 @@
 */
 
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -160,7 +160,7 @@ int main(int argc, char* argv[])
   dma_buf_addr = ef_memreg_dma_addr(&mr, 0);
 
   /* Prepare packet content */
-  tx_frame_len = init_udp_pkt(p, cfg_payload_len, &vi, dh);
+  tx_frame_len = init_udp_pkt(p, cfg_payload_len, &vi, dh, -1);
 
   /* Start sending */
   for( i = 0; i < cfg_iter; ++i ) {
@@ -228,6 +228,6 @@ static int parse_opts(int argc, char*argv[])
   }
 
   /* Parse arguments after options */
-  parse_args(argv, &ifindex, cfg_local_port);
+  parse_args(argv, &ifindex, cfg_local_port, -1);
   return 0;
 }

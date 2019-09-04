@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -17,8 +17,10 @@
 #define __ONLOAD_KERNEL_COMPAT_H__
 
 #include <driver/linux_net/kernel_compat.h>
+#include <driver/linux_net/autocompat.h>
 #include <driver/linux_affinity/autocompat.h>
 #include <linux/file.h>
+#include <linux/signal.h>
 
 #ifndef current_fsuid
 #define current_fsuid() current->fsuid
@@ -27,10 +29,14 @@
 #define current_fsgid() current->fsgid
 #endif
 
-#ifdef EFX_HAVE_KMEM_CACHE_S
+#ifdef EFRM_HAVE_KMEM_CACHE_S
 #define kmem_cache kmem_cache_s
 #endif
 
+#if defined(EFRM_ALLOC_FILE_TAKES_STRUCT_PATH) || \
+  defined(EFRM_ALLOC_FILE_TAKES_CONST_STRUCT_PATH)
+#define EFRM_HAVE_STRUCT_PATH
+#endif
 
 /* >=2.6.24 has sig_kernel_* macros in the header;
  * 2.6.18 has them in .c */
@@ -119,6 +125,12 @@ efrm_get_unused_fd_flags(unsigned flags)
 #else /* ! O_CLOEXEC */
 #define get_unused_fd_flags(flags) get_unused_fd()
 #endif
+#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0))
+#define ci_call_usermodehelper call_usermodehelper
+#else
+extern int
+ci_call_usermodehelper(char *path, char **argv, char **envp, int wait);
 #endif
 
 #endif /* __ONLOAD_KERNEL_COMPAT_H__ */

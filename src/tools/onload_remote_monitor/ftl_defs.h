@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -370,12 +370,12 @@
 
 #define STRUCT_EF_VI_RXQ_STATE(ctx)                                     \
   FTL_TSTRUCT_BEGIN(ctx, ef_vi_rxq_state, )                             \
-  FTL_TFIELD_INT(ctx, ef_vi_rxq_state, ci_uint32, prev_added, ORM_OUTPUT_STACK)           \
+  FTL_TFIELD_INT(ctx, ef_vi_rxq_state, ci_uint32, posted, ORM_OUTPUT_STACK)               \
   FTL_TFIELD_INT(ctx, ef_vi_rxq_state, ci_uint32, added, ORM_OUTPUT_STACK)                \
   FTL_TFIELD_INT(ctx, ef_vi_rxq_state, ci_uint32, removed, ORM_OUTPUT_STACK)              \
   FTL_TFIELD_INT(ctx, ef_vi_rxq_state, ci_uint32, in_jumbo, ORM_OUTPUT_STACK)             \
   FTL_TFIELD_INT(ctx, ef_vi_rxq_state, ci_uint32, bytes_acc, ORM_OUTPUT_STACK)            \
-  FTL_TFIELD_INT(ctx, ef_vi_rxq_state, ci_uint16, rx_ps_pkt_count, ORM_OUTPUT_STACK)      \
+  FTL_TFIELD_INT(ctx, ef_vi_rxq_state, ci_uint16, last_desc_i, ORM_OUTPUT_STACK)      \
   FTL_TFIELD_INT(ctx, ef_vi_rxq_state, ci_uint16, rx_ps_credit_avail, ORM_OUTPUT_STACK)   \
   FTL_TSTRUCT_END(ctx)
 
@@ -410,7 +410,8 @@
   FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, timeout_interrupt_wakes, ORM_OUTPUT_STACK) \
   FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, timeout_interrupt_no_events, ORM_OUTPUT_STACK) \
   FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, timeout_interrupt_lock_contends, ORM_OUTPUT_STACK) \
-  FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, select_primes, ORM_OUTPUT_STACK) \
+  FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, muxer_primes, ORM_OUTPUT_STACK) \
+  FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, pkt_wait_primes, ORM_OUTPUT_STACK) \
   FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, sock_sleeps, ORM_OUTPUT_STACK) \
   FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, sock_sleep_primes, ORM_OUTPUT_STACK) \
   FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, sock_wakes_rx, ORM_OUTPUT_STACK) \
@@ -454,6 +455,7 @@
     FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, tcp_handover_socket, ORM_OUTPUT_STACK)       \
     FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, tcp_handover_bind, ORM_OUTPUT_STACK)         \
     FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, tcp_handover_listen, ORM_OUTPUT_STACK)       \
+    FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, tcp_accept_os, ORM_OUTPUT_STACK)       \
     FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, tcp_handover_connect, ORM_OUTPUT_STACK)      \
     FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, tcp_handover_setsockopt, ORM_OUTPUT_STACK)   \
     FTL_TFIELD_INT(ctx, ci_netif_stats, ci_uint32, udp_handover_socket, ORM_OUTPUT_STACK)       \
@@ -897,7 +899,7 @@
   FTL_TFIELD_INT(ctx, ci_netif_state, ci_uint32, error_flags, ORM_OUTPUT_STACK)           \
   FTL_TFIELD_INT(ctx, ci_netif_state, ci_uint32, evq_primed, ORM_OUTPUT_STACK)            \
   FTL_TFIELD_ARRAYOFINT(ctx, ci_netif_state, ci_int8,                   \
-                        hwport_to_intf_i, CPLANE_MAX_REGISTER_INTERFACES, ORM_OUTPUT_STACK) \
+                        hwport_to_intf_i, CI_CFG_MAX_HWPORTS, ORM_OUTPUT_STACK) \
   FTL_TFIELD_ARRAYOFINT(ctx, ci_netif_state, ci_int8,                   \
                         intf_i_to_hwport, CI_CFG_MAX_INTERFACES, ORM_OUTPUT_STACK)        \
   FTL_TFIELD_INT(ctx, ci_netif_state, ci_uint32, n_spinners, ORM_OUTPUT_STACK)            \
@@ -971,7 +973,7 @@
   FTL_TFIELD_ARRAYOFINT(ctx, ci_netif_state, char, name,                \
                         CI_CFG_STACK_NAME_LEN + 1, ORM_OUTPUT_STACK)                      \
   FTL_TFIELD_INT(ctx, ci_netif_state, ci_int32, pid, ORM_OUTPUT_STACK)                    \
-  FTL_TFIELD_INT(ctx, ci_netif_state, uid_t, uid, ORM_OUTPUT_STACK)                       \
+  FTL_TFIELD_INT(ctx, ci_netif_state, uid_t, uuid, ORM_OUTPUT_STACK)                       \
   FTL_TFIELD_INT(ctx, ci_netif_state, ci_uint32, defer_work_count, ORM_OUTPUT_STACK)      \
   FTL_TFIELD_ARRAYOFINT(ctx, ci_netif_state, ci_uint8, hash_salt, 16, ORM_OUTPUT_EXTRA) \
   ON_CI_CFG_STATS_NETIF(                                                \
@@ -1084,9 +1086,9 @@
   FTL_TSTRUCT_END(ctx)
 
 #define STRUCT_CICP_VERINFO(ctx)                                              \
-    FTL_TSTRUCT_BEGIN(ctx, cicp_mac_verinfo_t, )                              \
-    FTL_TFIELD_INT(ctx, cicp_mac_verinfo_t, ci_verlock_value_t, row_version, ORM_OUTPUT_STACK)  \
-    FTL_TFIELD_INT(ctx, cicp_mac_verinfo_t, ci_int32, row_index, ORM_OUTPUT_STACK)        \
+    FTL_TSTRUCT_BEGIN(ctx, cicp_verinfo_t, )                                    \
+    FTL_TFIELD_INT(ctx, cicp_verinfo_t, ci_uint32, version, ORM_OUTPUT_STACK)\
+    FTL_TFIELD_INT(ctx, cicp_verinfo_t, ci_int32, id, ORM_OUTPUT_STACK) \
     FTL_TSTRUCT_END(ctx)
 
 #define STRUCT_PMTU_STATE(ctx)                                                \
@@ -1104,7 +1106,7 @@
 
 #define STRUCT_IP_HDRS(ctx)                                                   \
     FTL_TSTRUCT_BEGIN(ctx, ci_ip_cached_hdrs, )                               \
-    FTL_TFIELD_STRUCT(ctx, ci_ip_cached_hdrs, cicp_mac_verinfo_t,             \
+    FTL_TFIELD_STRUCT(ctx, ci_ip_cached_hdrs, cicp_verinfo_t,             \
 		      mac_integrity, ORM_OUTPUT_STACK)					      \
     FTL_TFIELD_INT2(ctx, ci_ip_cached_hdrs, ci_ip_addr_t, ip_saddr_be32, "\"" OOF_IP4 "\"", OOFA_IP4, ORM_OUTPUT_STACK) \
     FTL_TFIELD_INT2(ctx, ci_ip_cached_hdrs, ci_uint16, dport_be16, OOF_PORT, OOFA_PORT, ORM_OUTPUT_STACK) \
@@ -1186,13 +1188,13 @@ typedef struct oo_sock_cplane oo_sock_cplane_t;
   FTL_TFIELD_ANON_STRUCT_END(ctx, ci_sock_cmn, so)                      \
   FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_pkt_priority_t, so_priority, ORM_OUTPUT_STACK)      \
   FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_int32, so_error, ORM_OUTPUT_STACK)                  \
-  FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_int16, rx_bind2dev_ifindex, ORM_OUTPUT_STACK)       \
-  FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_int16, rx_bind2dev_base_ifindex, ORM_OUTPUT_STACK)  \
+  FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_ifid_t, rx_bind2dev_ifindex, ORM_OUTPUT_STACK)       \
+  FTL_TFIELD_INT(ctx, ci_sock_cmn, cicp_hwport_mask_t, rx_bind2dev_hwports, ORM_OUTPUT_STACK)  \
   FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_int16, rx_bind2dev_vlan, ORM_OUTPUT_STACK)          \
   FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_uint8, cmsg_flags, ORM_OUTPUT_STACK)                \
   FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_uint32, timestamping_flags, ORM_OUTPUT_STACK)       \
   FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_uint64, ino, ORM_OUTPUT_STACK)                      \
-  FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_uint32, uid, ORM_OUTPUT_STACK)                      \
+  FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_uint32, uuid, ORM_OUTPUT_STACK)                      \
   FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_int32, pid, ORM_OUTPUT_STACK)                       \
   FTL_TFIELD_INT(ctx, ci_sock_cmn, ci_uint8, domain, ORM_OUTPUT_STACK)                    \
   FTL_TFIELD_STRUCT(ctx, ci_sock_cmn, ci_ni_dllist_link, reap_link, ORM_OUTPUT_EXTRA)     \
@@ -1250,6 +1252,7 @@ typedef struct oo_tcp_socket_stats oo_tcp_socket_stats;
 
 #define STRUCT_TCP_SOCKET_STATS(ctx)                                    \
   FTL_TSTRUCT_BEGIN(ctx, oo_tcp_socket_stats, )                         \
+  FTL_TFIELD_INT(ctx, oo_tcp_socket_stats, ci_uint64, rx_pkts, ORM_OUTPUT_STACK)          \
   FTL_TFIELD_INT(ctx, oo_tcp_socket_stats, ci_uint32, tx_stop_rwnd, ORM_OUTPUT_STACK)     \
   FTL_TFIELD_INT(ctx, oo_tcp_socket_stats, ci_uint32, tx_stop_cwnd, ORM_OUTPUT_STACK)     \
   FTL_TFIELD_INT(ctx, oo_tcp_socket_stats, ci_uint32, tx_stop_more, ORM_OUTPUT_STACK)     \
@@ -1529,6 +1532,8 @@ typedef struct oo_tcp_socket_stats oo_tcp_socket_stats;
       FTL_TFIELD_INT(ctx, ci_tcp_socket_listen_stats, ci_uint32,              \
   		   n_sockcache_hit, ORM_OUTPUT_STACK)				              \
     ) \
+    FTL_TFIELD_INT(ctx, ci_tcp_socket_listen_stats, ci_uint32,                \
+		   n_rx_pkts, ORM_OUTPUT_STACK)                               \
     FTL_TSTRUCT_END(ctx)
 
 #define STRUCT_TCP_LISTEN(ctx) \

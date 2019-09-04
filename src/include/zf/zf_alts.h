@@ -1,12 +1,16 @@
 /*
-** This file is part of Solarflare TCPDirect.
+** Copyright 2005-2017  Solarflare Communications Inc.
+**                      7505 Irvine Center Drive, Irvine, CA 92618, USA
+** Copyright 2002-2005  Level 5 Networks Inc.
 **
-** Copyright 2015-2016  Solarflare Communications Inc.
-**                       7505 Irvine Center Drive, Irvine, CA 92618, USA
+** This program is free software; you can redistribute it and/or modify it
+** under the terms of version 2 of the GNU General Public License as
+** published by the Free Software Foundation.
 **
-** Proprietary and confidential.  All rights reserved.
-**
-** Please see TCPD-LICENSE.txt included in this distribution for terms of use.
+** This program is distributed in the hope that it will be useful,
+** but WITHOUT ANY WARRANTY; without even the implied warranty of
+** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+** GNU General Public License for more details.
 */
 
 /**************************************************************************\
@@ -17,7 +21,6 @@
 
 #ifndef __ZF_ALTS_H__
 #define __ZF_ALTS_H__
-
 
 /*! \brief Opaque handle for an alternative. */
 typedef uint64_t zf_althandle;
@@ -190,6 +193,37 @@ zft_alternatives_queue(struct zft* ts, zf_althandle alt,
 */
 ZF_LIBENTRY unsigned
 zf_alternatives_free_space(struct zf_stack* stack, zf_althandle alt);
+
+/*! \brief Per-packet overhead information
+**
+** This structure is used by ef_vi_transmit_alt_usage() to calculate
+** the amount of buffering needed to store a packet.
+**
+** Include the <etherfabric/ef_vi.h> header if you need the definition
+** of this structure. */
+struct ef_vi_transmit_alt_overhead;
+
+/*! \brief Query TCP per-packet overhead parameters
+**
+** \param ts          TCP connection to be queried
+** \param out         Returned overhead parameters
+**
+** \return 0 on success or -EINVAL if this stack doesn't support
+** alternatives.
+**
+** This function returns a set of parameters which can be used with
+** ef_vi_transmit_alt_usage() to calculate the amount of buffer space
+** used when sending data via TCP, taking into account the space taken
+** up by headers, VLAN tags, IP options etc.
+**
+** Use of this function in this way assumes that the transmitted data
+** fits entirely into a single TCP packet.
+**
+** See the documentation for ef_vi_transmit_alt_usage() for more.
+*/
+ZF_LIBENTRY int
+zf_alternatives_query_overhead_tcp(struct zft* ts, 
+                                   struct ef_vi_transmit_alt_overhead *out);
 
 
 #endif /* __ZF_ALTS_H__ */

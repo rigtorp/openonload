@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -402,13 +402,10 @@ static int efab_vi_get_mac(struct efrm_vi* virs, void* mac_out)
 
 
 static int efch_vi_get_rx_error_stats(struct efrm_vi* virs,
-                                      void* data, int data_len,
+                                      void* data, size_t data_len,
                                       int do_reset)
 {
-  struct efhw_nic *nic;
-  nic = efrm_client_get_nic(virs->rs.rs_client);
-  return efhw_nic_get_rx_error_stats(nic, virs->rs.rs_instance,
-                                     data, data_len, do_reset);
+  return efrm_vi_get_rx_error_stats(virs, data, data_len, do_reset);
 }
 
 
@@ -418,7 +415,7 @@ static int efch_vi_tx_alt_alloc(struct efrm_vi* virs, ci_resource_op_t* op)
   const int max_alts = ( sizeof(op->u.vi_tx_alt_alloc_out.alt_ids) / 
                          sizeof(op->u.vi_tx_alt_alloc_out.alt_ids[0]) );
   if( num_alts > max_alts )
-    return -E2BIG;
+    return -EBUSY;
 
   rc = efrm_vi_tx_alt_alloc(virs, num_alts,
                             op->u.vi_tx_alt_alloc_in.buf_space_32b);
@@ -544,7 +541,7 @@ efch_vi_rm_rsops(efch_resource_t* rs, ci_resource_table_t* rt,
 
     case CI_RSOP_VI_GET_RX_ERROR_STATS:
       {
-        int data_len = op->u.vi_stats.data_len;
+        size_t data_len = op->u.vi_stats.data_len;
         void *user_data = (void *)(unsigned long)op->u.vi_stats.data_ptr;
         void *data = kmalloc(data_len, GFP_KERNEL);
     

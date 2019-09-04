@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -513,6 +513,11 @@ struct efhw_nic {
 	uint8_t tx_alts_vfifos;
 	/* Number of common pool buffers for TX alternatives*/
 	uint16_t tx_alts_cp_bufs;
+
+        /* RX datapath firmware variant */
+        uint16_t rx_variant;
+        /* TX datapath firmware variant */
+        uint16_t tx_variant;
 };
 
 

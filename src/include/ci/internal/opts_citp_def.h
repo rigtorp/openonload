@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -135,6 +135,8 @@ CI_CFG_OPT("EF_EPOLL_CTL_FAST", ul_epoll_ctl_fast, ci_uint32,
 "exec() in cojuction with epoll file descriptors or with the sockets "
 "monitored by epoll.\n"
 "* If you monitor the epoll fd in another poll, select or epoll set, "
+"and have this option enabled, it may not give correct results.\n"
+"* If you monitor the epoll fd in another poll, select or epoll set, "
 "and the effects of epoll_ctl() are latency critical, then this option can "
 "cause latency spikes or even deadlock.\n"
 "* With EF_UL_EPOLL=2, this option is harmful if you are calling "
@@ -209,6 +211,11 @@ CI_CFG_OPT("EF_FDTABLE_STRICT", fdtable_strict, ci_uint32,
 /* FIXME: what are the symptoms to look for to find if this is causing
  * problems?
  */
+           1, , 0, 0, 1, yesno)
+
+CI_CFG_OPT("EF_LOG_TIMESTAMPS", log_timestamps, ci_uint32,
+"If enabled this will add a timestamp to every Onload output log entry. "
+"Timestamps are originated from the FRC counter.",
            1, , 0, 0, 1, yesno)
 
 CI_CFG_OPT("EF_LOG_VIA_IOCTL", log_via_ioctl, ci_uint32,
@@ -397,10 +404,6 @@ CI_CFG_OPT("EF_SA_ONSTACK_INTERCEPT", sa_onstack_intercept, ci_uint32,
 "  1 - Intercept.  There is no guarantee that SA_ONSTACK flag will really "
 "work, but OpenOnload library will do its best.",
            1, , 0, 0, 1, yesno)
-
-/* Not set via environment. */
-CI_CFG_OPT("", intercept, ci_uint32,
-           "", 1, , 1, 0, 1, yesno)
 
 #define CI_UNIX_PIPE_DONT_ACCELERATE 0
 #define CI_UNIX_PIPE_ACCELERATE 1
@@ -602,6 +605,17 @@ CI_CFG_OPT("EF_CLUSTER_RESTART", cluster_restart_opt, ci_uint32,
 "limitation such as an orphan stack from the previous process:\n "
 " 0 - return an error.\n"
 " 1 - terminate the orphan to allow the new process to continue",
+           , , 0, 0, 1, level)
+
+CI_CFG_OPT("EF_CLUSTER_HOT_RESTART", cluster_hot_restart_opt, ci_uint32,
+    "This option controls whether or not clusters support the hot/seamless "
+    "restart of applications. Enabling this reuses existing stacks in the "
+    "cluster to allow up to two processes per stack to bind to the same port "
+    "simultaneously. Note that it is required there will be as many new "
+    "sockets on the port as old ones; traffic will be lost otherwise when the "
+    "old sockets close.\n"
+    " 0 - disable per-port stack sharing. (default)\n"
+    " 1 - enable per-port stack sharing for hot restarts.",
            , , 0, 0, 1, level)
 
 CI_CFG_OPT("EF_TCP_FORCE_REUSEPORT", tcp_reuseports, ci_uint64,

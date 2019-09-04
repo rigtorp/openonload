@@ -1,12 +1,16 @@
 /*
-** This file is part of Solarflare TCPDirect.
+** Copyright 2005-2017  Solarflare Communications Inc.
+**                      7505 Irvine Center Drive, Irvine, CA 92618, USA
+** Copyright 2002-2005  Level 5 Networks Inc.
 **
-** Copyright 2015-2016  Solarflare Communications Inc.
-**                       7505 Irvine Center Drive, Irvine, CA 92618, USA
+** This program is free software; you can redistribute it and/or modify it
+** under the terms of version 2 of the GNU General Public License as
+** published by the Free Software Foundation.
 **
-** Proprietary and confidential.  All rights reserved.
-**
-** Please see TCPD-LICENSE.txt included in this distribution for terms of use.
+** This program is distributed in the hope that it will be useful,
+** but WITHOUT ANY WARRANTY; without even the implied warranty of
+** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+** GNU General Public License for more details.
 */
 
 /**************************************************************************\
@@ -88,6 +92,19 @@ ZF_LIBENTRY void zf_attr_reset(struct zf_attr* attr);
 ZF_LIBENTRY int zf_attr_set_int(struct zf_attr* attr,
                            const char* name, int64_t val);
 
+/*! \brief Get an integer-valued attribute.
+**
+** \param attr       The attribute object.
+** \param name       Name of the attribute.
+** \param val        Value of the attribute (output).
+**
+** \return 0 on success, or a negative error code:
+**         -ENOENT if @p name is not a valid attribute name
+**         -EINVAL if @p name does not have an integer type
+*/
+ZF_LIBENTRY int zf_attr_get_int(struct zf_attr* attr,
+                           const char* name, int64_t* val);
+
 /*! \brief Set an attribute to a string value.
 **
 ** \param attr       The attribute object.
@@ -100,6 +117,21 @@ ZF_LIBENTRY int zf_attr_set_int(struct zf_attr* attr,
 */
 ZF_LIBENTRY int zf_attr_set_str(struct zf_attr* attr,
                            const char* name, const char* val);
+
+/*! \brief Get a string-valued attribute.
+**
+** \param attr       The attribute object.
+** \param name       Name of the attribute.
+** \param val        Value of the attribute (output). This is 
+**                   allocated with strdup() and must be free()ed
+**                   by the caller.
+**
+** \return 0 on success, or a negative error code:
+**         -ENOENT if @p name is not a valid attribute name
+**         -EINVAL if @p name does not have a string type
+*/
+ZF_LIBENTRY int zf_attr_get_str(struct zf_attr* attr,
+                           const char* name, char** val);
 
 /*! \brief Set an attribute from a string value.
 **

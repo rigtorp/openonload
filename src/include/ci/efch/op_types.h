@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -360,11 +360,12 @@ typedef struct ci_license_challenge_op_s {
   efch_resource_id_t    pd_id;
 
   ci_int16          feature;
-/* Feature IDs. Well known. */
-#define CI_LCOP_CHALLENGE_FEATURE_ONLOAD    (1)
-#define CI_LCOP_CHALLENGE_FEATURE_SCPRO     (4)
-#define CI_LCOP_CHALLENGE_FEATURE_SCLIVE    (32)
-#define CI_LCOP_CHALLENGE_FEATURE_SCSI      (64)
+/* Feature IDs. Well known. Defined in SF-116142-SW. */
+#define CI_LCOP_CHALLENGE_FEATURE_ONLOAD    0x0001
+#define CI_LCOP_CHALLENGE_FEATURE_SCPRO     0x0004
+#define CI_LCOP_CHALLENGE_FEATURE_SCLIVE    0x0020
+#define CI_LCOP_CHALLENGE_FEATURE_SCSI      0x0040
+#define CI_LCOP_CHALLENGE_FEATURE_SCALEOUT  0x2000
 
   uint32_t          expiry;
   uint8_t           challenge[CI_LCOP_CHALLENGE_CHALLENGE_LEN];

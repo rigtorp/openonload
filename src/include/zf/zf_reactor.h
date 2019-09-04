@@ -1,12 +1,16 @@
 /*
-** This file is part of Solarflare TCPDirect.
+** Copyright 2005-2017  Solarflare Communications Inc.
+**                      7505 Irvine Center Drive, Irvine, CA 92618, USA
+** Copyright 2002-2005  Level 5 Networks Inc.
 **
-** Copyright 2015-2016  Solarflare Communications Inc.
-**                       7505 Irvine Center Drive, Irvine, CA 92618, USA
+** This program is free software; you can redistribute it and/or modify it
+** under the terms of version 2 of the GNU General Public License as
+** published by the Free Software Foundation.
 **
-** Proprietary and confidential.  All rights reserved.
-**
-** Please see TCPD-LICENSE.txt included in this distribution for terms of use.
+** This program is distributed in the hope that it will be useful,
+** but WITHOUT ANY WARRANTY; without even the implied warranty of
+** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+** GNU General Public License for more details.
 */
 
 /**************************************************************************\
@@ -35,6 +39,12 @@ struct zf_stack;
 ** call this function or zf_muxer_wait() frequently for each stack that is in
 ** use.  Please see \ref using_stack_poll in the User Guide for further
 ** information.
+**
+** By default this function has relatively high CPU overhead when no events
+** are ready to be processed, because it polls repeatedly for events.  The
+** amount of time spent polling is controlled by stack attribute
+** reactor_spin_count.  Setting reactor_spin_count to 1 disables polling
+** and minimises the cost of zf_reactor_perform().
 **
 ** \return 0  if nothing user-visible occurred as a result.
 ** \return >0 if something user-visible might have occurred as a result.

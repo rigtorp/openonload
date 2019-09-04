@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -15,7 +15,7 @@
 
 /****************************************************************************
  * Driver for Solarflare network controllers and boards
- * Copyright 2005-2015 Solarflare Communications Inc.
+ * Copyright 2005-2017 Solarflare Communications Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published
@@ -206,6 +206,8 @@ enum efx_encap_type {
  * @rem_host: Remote IP host to match, if %EFX_FILTER_MATCH_REM_HOST is set
  * @loc_port: Local TCP/UDP port to match, if %EFX_FILTER_MATCH_LOC_PORT is set
  * @rem_port: Remote TCP/UDP port to match, if %EFX_FILTER_MATCH_REM_PORT is set
+ * @tni: VXLAN Tenant Network ID.
+ * @encap_type: Type of encapsulation, see efx_encap_type above.
  * @outer_loc_mac: Outer local MAC address to match, if
  * 	%EFX_FILTER_MATCH_OUTER_LOC_MAC is set
  *

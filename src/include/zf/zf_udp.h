@@ -1,12 +1,16 @@
 /*
-** This file is part of Solarflare TCPDirect.
+** Copyright 2005-2017  Solarflare Communications Inc.
+**                      7505 Irvine Center Drive, Irvine, CA 92618, USA
+** Copyright 2002-2005  Level 5 Networks Inc.
 **
-** Copyright 2015-2016  Solarflare Communications Inc.
-**                       7505 Irvine Center Drive, Irvine, CA 92618, USA
+** This program is free software; you can redistribute it and/or modify it
+** under the terms of version 2 of the GNU General Public License as
+** published by the Free Software Foundation.
 **
-** Proprietary and confidential.  All rights reserved.
-**
-** Please see TCPD-LICENSE.txt included in this distribution for terms of use.
+** This program is distributed in the hope that it will be useful,
+** but WITHOUT ANY WARRANTY; without even the implied warranty of
+** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+** GNU General Public License for more details.
 */
 
 /**************************************************************************\
@@ -126,8 +130,8 @@ zfur_addr_unbind(struct zfur* us, const struct sockaddr* laddr,
 
 /*! \brief UDP zero-copy RX message structure.
 **
-** This structure is passed to zfur_zc_recv(), which will populate it with
-** pointers to received packets.
+** This structure is passed to zfur_zc_recv(), which will populate it and a 
+** referenced iovec array with pointers to received packets.
 */
 struct zfur_msg {
   /** Reserved. */
@@ -139,8 +143,8 @@ struct zfur_msg {
   /** In: Length of #iov array expressed as a count of iovecs; out: number of
       entries of #iov populated with pointers to packets. */
   int iovcnt;
-  /** In: base of iovec array; out: filled with iovecs pointing to the payload
-      of the received packets. */
+  /** In: base of separate iovec array, available for writing; out: iovec array
+      is filled with iovecs pointing to the payload of the received packets. */
   struct iovec iov[ZF_FLEXIBLE_ARRAY_COUNT];
 };
 

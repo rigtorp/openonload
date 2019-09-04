@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -215,6 +215,7 @@ static void citp_dump_opts(citp_opts_t *o)
   DUMP_OPT_HEX("EF_SIGNALS_NOPOSTPONE", signals_no_postpone);
   DUMP_OPT_INT("EF_CLUSTER_SIZE",  cluster_size);
   DUMP_OPT_INT("EF_CLUSTER_RESTART",  cluster_restart_opt);
+  DUMP_OPT_INT("EF_CLUSTER_HOT_RESTART", cluster_hot_restart_opt);
   ci_log("EF_CLUSTER_NAME=%s", o->cluster_name);
   if( o->tcp_reuseports == 0 ) {
     DUMP_OPT_INT("EF_TCP_FORCE_REUSEPORT", tcp_reuseports);
@@ -386,7 +387,8 @@ static void citp_opts_getenv(citp_opts_t* opts)
     ci_log_options &=~ CI_LOG_PID;
     citp_setup_logging_change(citp_log_fn_drv);
   } else {
-    if( getenv("EF_LOG_TIMESTAMPS") )
+    GET_ENV_OPT_INT("EF_LOG_TIMESTAMPS", log_timestamps);
+    if( opts->log_timestamps )
       ci_log_options |= CI_LOG_TIME;
     citp_setup_logging_change(citp_log_fn_ul);
   }
@@ -404,6 +406,10 @@ static void citp_opts_getenv(citp_opts_t* opts)
         " EF_POLL_FAST_USEC instead");
 
   if( (s = getenv("EF_POLL_USEC")) && atoi(s) ) {
+    /* Any changes to the behaviour triggered by this meta
+     * option must also be made to the extensions API option
+     * ONLOAD_SPIN_MIMIC_EF_POLL
+     */
     GET_ENV_OPT_INT("EF_POLL_USEC", ul_spin_usec);
     opts->ul_select_spin = 1;
     opts->ul_poll_spin = 1;
@@ -508,6 +514,7 @@ static void citp_opts_getenv(citp_opts_t* opts)
   if( opts->cluster_size < 2 )
     log("ERROR: cluster_size < 2 are not supported");
   GET_ENV_OPT_INT("EF_CLUSTER_RESTART",	cluster_restart_opt);
+  GET_ENV_OPT_INT("EF_CLUSTER_HOT_RESTART", cluster_hot_restart_opt);
   get_env_opt_port_list(&opts->tcp_reuseports, "EF_TCP_FORCE_REUSEPORT");
   get_env_opt_port_list(&opts->udp_reuseports, "EF_UDP_FORCE_REUSEPORT");
 
@@ -583,10 +590,7 @@ static void citp_opts_validate_env(void)
 static int
 citp_cfg_init(void)
 {
-  int cfgerr = 0;
- /* FIXME: if return code is non-zero, must not allow
-           no-intercept to be overriden by environment variable */
-  ci_cfg_query(NULL, &cfgerr);
+  ci_cfg_query();
   return 0;
 }
 

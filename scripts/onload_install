@@ -266,6 +266,10 @@ install_userland() {
     install_x "$u64/tools/ip/onload_stackdump" "$i_usrbin/onload_stackdump"
     install_x "$u64/tools/ip/onload_tcpdump.bin" "$i_usrbin/onload_tcpdump.bin"
     install_x "$u64/tools/ip/onload_fuser" "$i_usrbin/onload_fuser"
+    install_x "$u64/tools/cplane/$debug_dir/onload_cp_server" \
+              "$i_sbin/onload_cp_server"
+    install_x "$u64/tools/onload_mibdump/$debug_dir/onload_mibdump" \
+              "$i_usrbin/onload_mibdump"
     [ -f "$u64/tools/ip/onload_fe" ] && install_x "$u64/tools/ip/onload_fe" "$i_usrbin/onload_fe"
     failorm=true
     [ -f "$u64/tools/onload_remote_monitor/orm_json" ] && {
@@ -291,7 +295,11 @@ install_userland() {
     install_x "$u32/tools/ip/onload_stackdump" "$i_usrbin/onload_stackdump"
     install_x "$u32/tools/ip/onload_tcpdump.bin" "$i_usrbin/onload_tcpdump.bin"
     install_x "$u32/tools/ip/onload_fuser" "$i_usrbin/onload_fuser"
+    install_x "$u32/tools/cplane/$debug_dir/onload_cp_server" \
+              "$i_sbin/onload_cp_server"
     [ -f "$u32/tools/ip/onload_fe" ] && install_x "$u32/tools/ip/onload_fe" "$i_usrbin/onload_fe"
+    install_x "$u32/tools/onload_mibdump/$debug_dir/onload_mibdump" \
+              "$i_usrbin/onload_mibdump"
     $affinity && {
       install_plib "$u32/lib/sfcaffinity/libsfcaffinity.so" \
                 "$i_lib32/libsfcaffinity.so"
@@ -390,7 +398,6 @@ install_kernel_modules() {
   install_f sfc.ko "$did/sfc.ko"
   install_f sfc_resource.ko "$did/sfc_resource.ko"
   install_f sfc_char.ko "$did/sfc_char.ko"
-  install_f onload_cplane.ko "$did/onload_cplane.ko"
   install_f onload.ko "$did/onload.ko"
   $affinity && install_f sfc_affinity.ko "$did/sfc_affinity.ko"
   if [ -z "$i_prefix" ]; then
@@ -420,9 +427,11 @@ install_kernel_modules() {
   install_f linux_net/Module.symvers "$did/sfc.symvers"
   install_f linux_resource/Module.symvers "$did/sfc_resource.symvers"
   install_f linux_char/Module.symvers "$did/sfc_char.symvers"
-  install_f linux_cplane/Module.symvers "$did/onload_cplane.symvers"
   install_f linux_onload/Module.symvers "$did/onload.symvers"
   install_f linux_affinity/Module.symvers "$did/sfc_affinity.symvers"
+  # Install driver headers
+  install_f linux_net/driverlink_api.h "$did/driverlink_api.h"
+  install_f linux_net/filter.h "$did/filter.h"
 }
 
 
@@ -448,9 +457,8 @@ install_modprobe_conf() {
     rhel4_modprobe_fixup
   fi
 
-  if [ -d "$i_etc/depmod.d" ]; then
-    install_f onload_misc/onload_depmod.conf "$i_etc/depmod.d/onload.conf"
-  fi
+  try mkdir -p "$i_etc/depmod.d"
+  install_f onload_misc/onload_depmod.conf "$i_etc/depmod.d/onload.conf"
 }
 
 
@@ -627,6 +635,9 @@ withofe=true
 install_modules=true
 install_user=true
 ppc_at=
+# $debug_dir is relevant for blob binaries only.  We package debug and ndebug
+# versions, and need to select between them.
+debug_dir=
 
 KVER=$(uname -r)
 export KVER
@@ -647,7 +658,7 @@ while [ $# -gt 0 ]; do
   --nosetuid)   setuid=false;;
   --noaffinity) affinity=false; buildargs="$buildargs $1";;
   --affinity)   affinity=true;  buildargs="$buildargs $1";;
-  --debug)	buildargs="$buildargs $1";;
+  --debug)	buildargs="$buildargs $1"; debug_dir=debug;;
   --no-debug-info)buildargs="$buildargs $1";;
   --strict)	buildargs="$buildargs $1";;
   --ppc-at)     is_ppc || usage; ppc_at="$2"; shift;;
@@ -746,6 +757,8 @@ if $build; then
   "$bin/onload_build" $buildargs ||
     fail "ERROR: Build failed.  Not installing."
   logprog "Build complete."
+else
+  [ -d "$TOP/build" ] || fail "ERROR: build not present.  Not installing.  Please run without --nobuild"
 fi
 
 

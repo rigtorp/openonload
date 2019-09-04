@@ -122,9 +122,6 @@ sfc-y			+= efx.o nic.o farch.o siena.o ef10.o tx.o \
 			   rx.o selftest.o ethtool.o \
 			   mcdi.o mcdi_port.o mcdi_mon.o ptp.o \
 			   sriov.o siena_sriov.o ef10_sriov.o tx_tso.o
-ifdef EFX_UPSTREAM
-sfc-y			+= falcon.o tenxpress.o txc43128_phy.o falcon_boards.o
-endif
 sfc-$(CONFIG_SFC_MTD)	+= mtd.o
 ifndef EFX_NO_KCOMPAT
 ifneq ($(MAKECMDGOALS),export)
@@ -234,7 +231,7 @@ $(obj)/autocompat.h: $(obj)/.kpath $(src)/kernel_compat.sh
 	@touch $@
 
 define filechk_config.h
-	printf "$(foreach name,SFC_DEBUGFS SFC_DUMP SFC_MCDI_MON SFC_FALCON SFC_MTD SFC_SRIOV SFC_PTP SFC_PRIVATE_MDIO SFC_AOE SFC_PPS SFC_TRACING SFC_MCDI_LOGGING,#undef CONFIG_$(name)\n$(if $(filter y,$(CONFIG_$(name))),#define CONFIG_$(name) 1\n))"
+	printf "$(foreach name,SFC_DEBUGFS SFC_DUMP SFC_MCDI_MON SFC_MTD SFC_SRIOV SFC_PTP SFC_PRIVATE_MDIO SFC_AOE SFC_PPS SFC_TRACING SFC_MCDI_LOGGING,#undef CONFIG_$(name)\n$(if $(filter y,$(CONFIG_$(name))),#define CONFIG_$(name) 1\n))"
 endef
 
 $(obj)/config.h: $(src)/Makefile FORCE
@@ -322,7 +319,7 @@ export:
 
 # Export into a Xen kernel tree
 export-xen:
-	./export.sh -k -kk -s xen $(KPATH) $(sfc-y:%.o=%.c)
+	./export.sh -k -kk --suffix=xen $(KPATH) $(sfc-y:%.o=%.c)
 
 # Export for SRPM
 export-srpm:

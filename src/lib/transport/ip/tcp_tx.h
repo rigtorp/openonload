@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -94,6 +94,7 @@ ci_inline void __ci_tcp_calc_rcv_wnd(ci_tcp_state* ts)
   int new_window;
   unsigned new_rhs;
   ci_uint16 tmp;
+  unsigned delta;
 
   new_window = CI_MIN(ts->rcv_window_max,
                       ts->s.so.rcvbuf -
@@ -104,10 +105,11 @@ ci_inline void __ci_tcp_calc_rcv_wnd(ci_tcp_state* ts)
    * as required by RFC1122 silly window avoidance.
    *
    * Do not apply silly window avoidance when we have nothing to read:
-   * probably, rcvbuff is too small.
+   * probably, rcvbuf is too small.
    */
-  if( CI_LIKELY( SEQ_GE(new_rhs, ts->rcv_wnd_right_edge_sent + ts->amss) )
-      || tcp_rcv_usr(ts) == 0 ) {
+  delta = tcp_rcv_usr(ts) ? ts->amss : 0;
+
+  if( CI_LIKELY( SEQ_GE(new_rhs, ts->rcv_wnd_right_edge_sent + delta) ) ) {
     /* We are ready to move on the window right edge. */
     ts->rcv_wnd_advertised = new_window;
     tcp_rcv_wnd_right_edge_sent(ts) = new_rhs;

@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -121,7 +121,7 @@ oo_dshm_register_impl(ci_int32 shm_class, ci_user_ptr_t user_addr,
   /* Take references to the pages from the user's buffer. */
   down_read(&current->mm->mmap_sem);
   rc = get_user_pages((unsigned long) CI_USER_PTR_GET(user_addr),
-                      buffer->num_pages, 0 /* read-only */, 0 /* no force */,
+                      buffer->num_pages, 0 /* read-only, no force */,
                       buffer->pages, NULL);
   up_read(&current->mm->mmap_sem);
 
@@ -250,7 +250,7 @@ oo_dshm_free_handle_list(ci_dllist* list)
 
 
 
-#ifdef OO_MMAP_HAVE_EXTENDED_MAP_TYPES
+#ifdef OO_MMAP_TYPE_DSHM
 /* Maps a dshm segment into a process's address space. */
 int
 oo_dshm_mmap_impl(struct vm_area_struct* vma)
@@ -308,7 +308,7 @@ oo_dshm_mmap_impl(struct vm_area_struct* vma)
 
   return rc;
 }
-#endif /* defined(OO_MMAP_HAVE_EXTENDED_MAP_TYPES) */
+#endif /* defined(OO_MMAP_TYPE_DSHM) */
 
 
 void

@@ -1,12 +1,16 @@
 /*
-** This file is part of Solarflare TCPDirect.
+** Copyright 2005-2017  Solarflare Communications Inc.
+**                      7505 Irvine Center Drive, Irvine, CA 92618, USA
+** Copyright 2002-2005  Level 5 Networks Inc.
 **
-** Copyright 2015-2016  Solarflare Communications Inc.
-**                       7505 Irvine Center Drive, Irvine, CA 92618, USA
+** This program is free software; you can redistribute it and/or modify it
+** under the terms of version 2 of the GNU General Public License as
+** published by the Free Software Foundation.
 **
-** Proprietary and confidential.  All rights reserved.
-**
-** Please see TCPD-LICENSE.txt included in this distribution for terms of use.
+** This program is distributed in the hope that it will be useful,
+** but WITHOUT ANY WARRANTY; without even the implied warranty of
+** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+** GNU General Public License for more details.
 */
 
 /**************************************************************************\
@@ -186,10 +190,10 @@ zf_muxer_del(struct zf_waitable* w);
 ** contrast to the rest of the API, zf_muxer_wait() can block.  The maximum
 ** time to block is specified by @p timeout_ns, and a value of zero results in
 ** non-blocking behaviour.  A negative value for @p timeout_ns will allow the
-** function to block indefinitely.  If the function, blocks, it will call
+** function to block indefinitely.  If the function blocks, it will call
 ** zf_reactor_perform() repeatedly in a tight loop.
 **
-** The multiplexer supports only edge-triggered events: that is, if
+** The multiplexer only supports edge-triggered events: that is, if
 ** zf_muxer_wait() reports that a waitable is ready, it need not do so again
 ** until a <i>new</i> event occurs on tha waitable, even if the waitable is
 ** in fact ready.  On the other hand, a waitable <i>may</i> be reported as
@@ -197,6 +201,12 @@ zf_muxer_del(struct zf_waitable* w);
 ** in fact ready.  A transition from "not ready" to "ready" always constitutes
 ** an edge, and in particular, for `EPOLLIN`, the arrival of any new data
 ** constitutes an edge.
+**
+** By default this function has relatively high CPU overhead when no events
+** are ready to be processed and timeout_ns==0, because it polls repeatedly
+** for events.  The amount of time spent polling is controlled by stack
+** attribute reactor_spin_count.  Setting reactor_spin_count to 1 disables
+** polling and minimises the cost of zf_muxer_wait(timeout_ns=0).
 */
 ZF_LIBENTRY int
 zf_muxer_wait(struct zf_muxer_set* muxer, struct epoll_event* events,
@@ -237,9 +247,16 @@ ZF_LIBENTRY const struct epoll_event* zf_waitable_event(struct zf_waitable* w);
  * of the stack's zockets that the caller is interested in.  This may
  * or may not result in a zocket within the stack becoming readable or
  * writeable.
+ *
+ * Using a waitable FD with the `zf_waitable_fd...()` family of functions 
+ * enables interrupts. For latency-critical applications, you should instead 
+ * manually poll each reactor in turn, after first setting the 
+ * \attrref{reactor_spin_count} attribute to 1.
  * 
  * Freeing the zf_stack will release all the resources associated with
- * this fd, so it must not be used afterwards.
+ * this fd, so it must not be used afterwards.  You do not need to
+ * call close() on the supplied fd, it will be closed when the stack
+ * is freed as part of the zf_stack_free() call.
  */
 
 ZF_LIBENTRY int

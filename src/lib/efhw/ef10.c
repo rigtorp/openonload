@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -391,19 +391,6 @@ ef10_nic_v3_license_check(struct efhw_nic *nic, const uint64_t app_id,
 
 
 static int
-_ef10_nic_check_licence(struct efhw_nic *nic) {
-	int licensed;
-	int rc;
-	if (nic->devtype.variant > 'A')
-		rc = ef10_nic_v3_license_check(nic, LICENSED_APP_ID_ONLOAD, &licensed);
-	else
-		rc = ef10_nic_license_check(nic, LICENSED_APP_ID_ONLOAD, &licensed);
-
-	return rc == 0 ? licensed : rc;
-}
-
-
-static int
 ef10_nic_license_challenge(struct efhw_nic *nic, 
 			   const uint32_t feature, 
 			   const uint8_t* challenge, 
@@ -667,6 +654,9 @@ static int _ef10_nic_check_capabilities(struct efhw_nic *nic,
 		nic->tx_alts_cp_bufs = 0;
 	}
 
+        nic->rx_variant = EFHW_MCDI_WORD(out, GET_CAPABILITIES_OUT_RX_DPCPU_FW_ID);
+        nic->tx_variant = EFHW_MCDI_WORD(out, GET_CAPABILITIES_OUT_TX_DPCPU_FW_ID);
+
 	return rc;
 }
 
@@ -775,14 +765,6 @@ ef10_nic_init_hardware(struct efhw_nic *nic,
 		 */
 		nic->rx_ts_correction = -12;
 		nic->tx_ts_correction = 178;
-	}
-
-	rc = _ef10_nic_check_licence(nic);
-	if( rc < 0 ) return rc;
-	if( rc == 0 ) {
-		EFHW_ERR("%s: Firmware reports no Onload licence present",
-			 __FUNCTION__);
-		return -EOPNOTSUPP;
 	}
 
 	/* No buffer_table_ctor() on EF10 */
@@ -1253,11 +1235,11 @@ ef10_mcdi_common_pool_alloc(struct efhw_nic *nic, unsigned txq_id,
 	unsigned buf_size = 512;
 	unsigned num_bufs = (num_32b_words * 32 + buf_size - 1) / buf_size;
 
-	/* One buffer gets pre-allocated per CP, which in practice means we
-	 * need any extra one to ensure we get the buffering the user
-	 * expects.
+	/* Up to two buffers get allocated per VFIFO by the hardware,
+	 * which in practice means we need extra buffers to ensure we
+	 * get the buffering the user expects.
 	 */
-	num_bufs += num_alt;
+	num_bufs += 2 * num_alt;
 
 	EFHW_MCDI_INITIALISE_BUF(in);
 	EFHW_MCDI_INITIALISE_BUF(out);

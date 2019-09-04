@@ -1,12 +1,16 @@
 /*
-** This file is part of Solarflare TCPDirect.
+** Copyright 2005-2017  Solarflare Communications Inc.
+**                      7505 Irvine Center Drive, Irvine, CA 92618, USA
+** Copyright 2002-2005  Level 5 Networks Inc.
 **
-** Copyright 2015-2016  Solarflare Communications Inc.
-**                       7505 Irvine Center Drive, Irvine, CA 92618, USA
+** This program is free software; you can redistribute it and/or modify it
+** under the terms of version 2 of the GNU General Public License as
+** published by the Free Software Foundation.
 **
-** Proprietary and confidential.  All rights reserved.
-**
-** Please see TCPD-LICENSE.txt included in this distribution for terms of use.
+** This program is distributed in the hope that it will be useful,
+** but WITHOUT ANY WARRANTY; without even the implied warranty of
+** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+** GNU General Public License for more details.
 */
 
 /**************************************************************************\
@@ -384,8 +388,8 @@ zft_getname(struct zft* ts, struct sockaddr* laddr_out, socklen_t* laddrlen,
 
 /*! \brief TCP zero-copy RX message structure.
 **
-** This structure is passed to zft_zc_recv(), which will populate it with
-** pointers to received packets.
+** This structure is passed to zft_zc_recv(), which will populate it and a 
+** referenced iovec array with pointers to received packets.
 */
 struct zft_msg {
   /** Reserved. */
@@ -397,8 +401,8 @@ struct zft_msg {
   /** In: Length of #iov array expressed as a count of iovecs; out: number of
       entries of #iov populated with pointers to packets. */
   int iovcnt;
-  /** In: base of iovec array; out: filled with iovecs pointing to the payload
-      of the received packets. */
+  /** In: base of separate iovec array, available for writing; out: iovec array
+      is filled with iovecs pointing to the payload of the received packets. */
   struct iovec iov[ZF_FLEXIBLE_ARRAY_COUNT];
 };
 
@@ -409,10 +413,12 @@ struct zft_msg {
 ** \param msg       Message structure.
 ** \param flags     Reserved.  Must be zero.
 **
-** This function completes the supplied @p msg structure with details
-** of received packet buffers.  In case of EOF a zero-length buffer is appended
-** at the end of data stream and to identify reason of stream termination check
-** result of zft_zc_recv_done() or of zft_zc_recv_done_some().
+** This function completes the supplied @p msg structure and its referenced
+** iovec array with details of received packet buffers.
+**
+** In case of EOF a zero-length buffer is appended at the end of data stream, 
+** and to identify the reason of stream termination check the result of 
+** zft_zc_recv_done() or of zft_zc_recv_done_some().
 **
 ** The function will only fill fewer iovecs in @p msg than are provided in the
 ** case where no further data is available.

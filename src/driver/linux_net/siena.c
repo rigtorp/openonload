@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -16,7 +16,7 @@
 /****************************************************************************
  * Driver for Solarflare network controllers and boards
  * Copyright 2005-2006 Fen Systems Ltd.
- * Copyright 2006-2015 Solarflare Communications Inc.
+ * Copyright 2006-2017 Solarflare Communications Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published
@@ -157,7 +157,7 @@ static int siena_test_sram(struct efx_nic *efx,
 				continue;
 
 			netif_err(efx, hw, efx->net_dev,
-				  "sram test failed at index 0x%x. wrote "
+				  "sram test failed at index %#x. wrote "
 				  EFX_QWORD_FMT" read "EFX_QWORD_FMT"\n",
 				  rptr, EFX_QWORD_VAL(buf1),
 				  EFX_QWORD_VAL(buf2));
@@ -396,14 +396,9 @@ static int siena_probe_nvconfig(struct efx_nic *efx)
 	struct siena_nic_data *nic_data = efx->nic_data;
 	int rc;
 
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_USE_NETDEV_PERM_ADDR)
 	rc = efx_mcdi_get_board_cfg(efx,
 				    efx->net_dev->perm_addr,
 				    NULL, &nic_data->caps);
-#else
-	rc = efx_mcdi_get_board_cfg(efx, efx->perm_addr,
-				    NULL, &nic_data->caps);
-#endif
 
 	efx->timer_quantum_ns = (maranello_enabled(efx->nic_data) ?
 				 3072 : 6144); /* 768 cycles */
@@ -418,6 +413,9 @@ static int siena_dimension_resources(struct efx_nic *efx)
 	 * the buffer table and descriptor caches.  In theory we can
 	 * map both blocks to one port, but we don't.
 	 */
+#ifndef EFX_NOT_UPSTREAM
+	return efx_farch_dimension_resources(efx, FR_CZ_BUF_FULL_TBL_ROWS / 2);
+#else
 #ifdef CONFIG_SFC_SRIOV
 	struct siena_nic_data *nic_data = efx->nic_data;
 #endif
@@ -459,7 +457,7 @@ static int siena_dimension_resources(struct efx_nic *efx)
 
 	end_res = &efx->farch_resources.hdr;
 
-#if defined(EFX_NOT_UPSTREAM) && defined(CONFIG_SFC_AOE)
+#ifdef CONFIG_SFC_AOE
 	/* If the board is AOE enabled */
 	if (efx->nic_data && (aoe_enabled(efx->nic_data))) {
 		/* Number of MACs is hardcoded for now */
@@ -485,6 +483,7 @@ static int siena_dimension_resources(struct efx_nic *efx)
 #endif
 
 	return 0;
+#endif /* EFX_NOT_UPSTREAM */
 }
 
 static unsigned int siena_mem_map_size(struct efx_nic *efx)
@@ -513,10 +512,10 @@ static int siena_probe_nic(struct efx_nic *efx)
 		goto fail1;
 	}
 
-	efx->max_channels = efx->max_tx_channels = EFX_MAX_CHANNELS;
-	EFX_BUG_ON_PARANOID(EFX_TXQ_TYPE_CSUM_OFFLOAD >= 2);
-	EFX_BUG_ON_PARANOID(EFX_TXQ_TYPE_NO_OFFLOAD >= 2);
-	EFX_BUG_ON_PARANOID(EFX_TXQ_TYPE_CSUM_OFFLOAD == EFX_TXQ_TYPE_NO_OFFLOAD);
+	efx->max_channels = efx->max_tx_channels = EFX_SIENA_MAX_CHANNELS;
+	BUILD_BUG_ON(EFX_TXQ_TYPE_CSUM_OFFLOAD >= 2);
+	BUILD_BUG_ON(EFX_TXQ_TYPE_NO_OFFLOAD >= 2);
+	BUILD_BUG_ON(EFX_TXQ_TYPE_CSUM_OFFLOAD == EFX_TXQ_TYPE_NO_OFFLOAD);
 	efx->tx_queues_per_channel = 2;
 	efx->select_tx_queue = efx_farch_select_tx_queue;
 
@@ -717,6 +716,8 @@ static int siena_init_nic(struct efx_nic *efx)
 	efx_writeo(efx, &temp, FR_AZ_RX_CFG);
 
 	siena_rx_push_rss_config(efx, false, efx->rx_indir_table, NULL);
+	efx->rss_flags = RSS_CONTEXT_FLAGS_DEFAULT; /* IPv4 and IPv6 enabled */
+	efx->rss_active = true;
 
 	/* Enable event logging */
 	rc = efx_mcdi_log_ctrl(efx, true, false, 0);
@@ -752,7 +753,7 @@ static void siena_remove_nic(struct efx_nic *efx)
 	efx_mcdi_detach(efx);
 	efx_mcdi_fini(efx);
 
-	/* Tear down the private nic state, and the driverlink nic params */
+	/* Tear down the private nic state */
 	kfree(efx->nic_data);
 	efx->nic_data = NULL;
 }
@@ -1053,6 +1054,7 @@ static void siena_init_wol(struct efx_nic *efx)
 	(efx_port_num(efx) ? MC_SMEM_P1_STATUS_OFST : MC_SMEM_P0_STATUS_OFST)
 
 static void siena_mcdi_request(struct efx_nic *efx,
+			       __attribute__ ((unused)) unsigned char buf,
 			       const efx_dword_t *hdr, size_t hdr_len,
 			       const efx_dword_t *sdu, size_t sdu_len)
 {
@@ -1061,7 +1063,7 @@ static void siena_mcdi_request(struct efx_nic *efx,
 	unsigned int i;
 	unsigned int inlen_dw = DIV_ROUND_UP(sdu_len, 4);
 
-	EFX_BUG_ON_PARANOID(hdr_len != 4);
+	EFX_WARN_ON_PARANOID(hdr_len != 4);
 
 	efx_writed(efx, hdr, pdu);
 
@@ -1075,7 +1077,8 @@ static void siena_mcdi_request(struct efx_nic *efx,
 	_efx_writed(efx, (__force __le32) 0x45789abc, doorbell);
 }
 
-static bool siena_mcdi_poll_response(struct efx_nic *efx)
+static bool siena_mcdi_poll_response(struct efx_nic *efx,
+				     __attribute__ ((unused)) u8 bufid)
 {
 	unsigned int pdu = FR_CZ_MC_TREG_SMEM + MCDI_PDU(efx);
 	efx_dword_t hdr;
@@ -1090,8 +1093,10 @@ static bool siena_mcdi_poll_response(struct efx_nic *efx)
 		EFX_DWORD_FIELD(hdr, MCDI_HEADER_RESPONSE);
 }
 
-static void siena_mcdi_read_response(struct efx_nic *efx, efx_dword_t *outbuf,
-				     size_t offset, size_t outlen)
+static void siena_mcdi_read_response(struct efx_nic *efx,
+				     __attribute__ ((unused)) u8 bufid,
+				     efx_dword_t *outbuf, size_t offset,
+				     size_t outlen)
 {
 	unsigned int pdu = FR_CZ_MC_TREG_SMEM + MCDI_PDU(efx);
 	unsigned int outlen_dw = DIV_ROUND_UP(outlen, 4);
@@ -1101,9 +1106,19 @@ static void siena_mcdi_read_response(struct efx_nic *efx, efx_dword_t *outbuf,
 		efx_readd(efx, &outbuf[i], pdu + offset + 4 * i);
 }
 
-static int siena_mcdi_poll_reboot(struct efx_nic *efx)
+static void siena_mcdi_reboot_detected(struct efx_nic *efx)
 {
 	struct siena_nic_data *nic_data = efx->nic_data;
+
+	/* MAC statistics have been cleared on the NIC; clear the local
+	 * copies that we update with efx_update_diff_stat().
+	 */
+	nic_data->stats[SIENA_STAT_tx_good_bytes] = 0;
+	nic_data->stats[SIENA_STAT_rx_good_bytes] = 0;
+}
+
+static int siena_mcdi_poll_reboot(struct efx_nic *efx)
+{
 	unsigned int addr = FR_CZ_MC_TREG_SMEM + MCDI_STATUS(efx);
 	efx_dword_t reg;
 	u32 value;
@@ -1117,17 +1132,25 @@ static int siena_mcdi_poll_reboot(struct efx_nic *efx)
 	EFX_ZERO_DWORD(reg);
 	efx_writed(efx, &reg, addr);
 
-	/* MAC statistics have been cleared on the NIC; clear the local
-	 * copies that we update with efx_update_diff_stat().
-	 */
-	nic_data->stats[SIENA_STAT_tx_good_bytes] = 0;
-	nic_data->stats[SIENA_STAT_rx_good_bytes] = 0;
-
 	if (value == MC_STATUS_DWORD_ASSERT)
 		return -EINTR;
 	else
 		return -EIO;
 }
+
+static bool siena_mcdi_get_buf(__attribute__ ((unused)) struct efx_nic *efx,
+			       u8 *bufid)
+{
+	/* siena can't get in to the position of requesting a second buffer
+	 * since it never returns the doorbell early, so always say yes
+	 * with a dummy value.
+	 */
+	*bufid = 0x51;
+	return true;
+}
+
+static void siena_mcdi_put_buf(__attribute__ ((unused)) struct efx_nic *efx,
+			       __attribute__ ((unused)) u8 bufid) {}
 
 /**************************************************************************
  *
@@ -1164,7 +1187,7 @@ static const struct siena_nvram_type_info siena_nvram_types[] = {
 };
 
 static int siena_mtd_probe_partition(struct efx_nic *efx,
-				     struct efx_mcdi_mtd_partition *part,
+				     struct efx_mtd_partition *part,
 				     unsigned int type)
 {
 	const struct siena_nvram_type_info *info;
@@ -1189,24 +1212,24 @@ static int siena_mtd_probe_partition(struct efx_nic *efx,
 		return -ENODEV; /* hide it */
 
 	part->nvram_type = type;
-	part->common.dev_type_name = "Siena NVRAM manager";
-	part->common.type_name = info->name;
+	part->dev_type_name = "Siena NVRAM manager";
+	part->type_name = info->name;
 
-	part->common.mtd.type = MTD_NORFLASH;
-	part->common.mtd.flags = MTD_CAP_NORFLASH;
-	part->common.mtd.size = size;
-	part->common.mtd.erasesize = erase_size;
+	part->mtd.type = MTD_NORFLASH;
+	part->mtd.flags = MTD_CAP_NORFLASH;
+	part->mtd.size = size;
+	part->mtd.erasesize = erase_size;
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_USE_MTD_WRITESIZE)
-	part->common.mtd.writesize = write_size;
+	part->mtd.writesize = write_size;
 #else
-	part->common.writesize = write_size;
+	part->writesize = write_size;
 #endif
 
 	return 0;
 }
 
 static int siena_mtd_get_fw_subtypes(struct efx_nic *efx,
-				     struct efx_mcdi_mtd_partition *parts,
+				     struct efx_mtd_partition *parts,
 				     size_t n_parts)
 {
 	uint16_t fw_subtype_list[
@@ -1226,7 +1249,7 @@ static int siena_mtd_get_fw_subtypes(struct efx_nic *efx,
 
 static int siena_mtd_probe(struct efx_nic *efx)
 {
-	struct efx_mcdi_mtd_partition *parts;
+	struct efx_mtd_partition *parts;
 	u32 nvram_types;
 	unsigned int type;
 	size_t n_parts;
@@ -1262,7 +1285,7 @@ static int siena_mtd_probe(struct efx_nic *efx)
 	if (rc)
 		goto fail;
 
-	rc = efx_mtd_add(efx, &parts[0].common, n_parts, sizeof(*parts));
+	rc = efx_mtd_add(efx, parts, n_parts);
 fail:
 	if (rc)
 		kfree(parts);
@@ -1324,6 +1347,11 @@ const struct efx_nic_type siena_a0_nic_type = {
 	.mcdi_poll_response = siena_mcdi_poll_response,
 	.mcdi_read_response = siena_mcdi_read_response,
 	.mcdi_poll_reboot = siena_mcdi_poll_reboot,
+	.mcdi_record_bist_event = efx_port_dummy_op_void,
+	.mcdi_poll_bist_end = siena_mcdi_poll_reboot,
+	.mcdi_reboot_detected = siena_mcdi_reboot_detected,
+	.mcdi_get_buf = siena_mcdi_get_buf,
+	.mcdi_put_buf = siena_mcdi_put_buf,
 	.irq_enable_master = efx_farch_irq_enable_master,
 	.irq_test_generate = efx_farch_irq_test_generate,
 	.irq_disable_non_ev = efx_farch_irq_disable_master,
@@ -1358,7 +1386,6 @@ const struct efx_nic_type siena_a0_nic_type = {
 	.filter_remove_safe = efx_farch_filter_remove_safe,
 	.filter_get_safe = efx_farch_filter_get_safe,
 	.filter_clear_rx = efx_farch_filter_clear_rx,
-	.filter_redirect = efx_farch_filter_redirect,
 	.filter_count_rx_used = efx_farch_filter_count_rx_used,
 	.filter_get_rx_id_limit = efx_farch_filter_get_rx_id_limit,
 	.filter_get_rx_ids = efx_farch_filter_get_rx_ids,
@@ -1372,6 +1399,7 @@ const struct efx_nic_type siena_a0_nic_type = {
 	.filter_async_remove = efx_farch_filter_async_remove,
 #endif
 #ifdef EFX_NOT_UPSTREAM
+	.filter_redirect = efx_farch_filter_redirect,
 	.filter_block_kernel = efx_farch_filter_block_kernel,
 	.filter_unblock_kernel = efx_farch_filter_unblock_kernel,
 	.vport_filter_insert = efx_farch_vport_filter_insert,
@@ -1421,6 +1449,7 @@ const struct efx_nic_type siena_a0_nic_type = {
 	.min_interrupt_mode = EFX_INT_MODE_LEGACY,
 	.max_interrupt_mode = EFX_INT_MODE_MSIX,
 	.timer_period_max = 1 << FRF_CZ_TC_TIMER_VAL_WIDTH,
+#ifdef EFX_NOT_UPSTREAM
 	.farch_resources = {
 		.hdr.next = ((struct efx_dl_device_info *)
 			     &siena_a0_nic_type.dl_hash_insertion.hdr),
@@ -1437,6 +1466,7 @@ const struct efx_nic_type siena_a0_nic_type = {
 		.flags = (EFX_DL_HASH_TOEP_TCPIP4 | EFX_DL_HASH_TOEP_IP4 |
 			  EFX_DL_HASH_TOEP_TCPIP6 | EFX_DL_HASH_TOEP_IP6),
 	},
+#endif
 #if !defined(EFX_USE_KCOMPAT) || defined(NETIF_F_IPV6_CSUM)
 	.offload_features = (NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
 			     NETIF_F_RXHASH | NETIF_F_NTUPLE),

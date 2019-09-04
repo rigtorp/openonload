@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -1141,10 +1141,17 @@ void ci_netif_put_ready_list(ci_netif* ni, int id)
   ci_assert(ni->state->ready_lists_in_use & (1 << id));
   ci_assert_nequal(id, 0);
 
-  if( ci_netif_lock(ni) != 0 ) {
-    ci_log("epoll: Leaking ready list [%d:%d]", NI_ID(ni), id);
+#ifdef __KERNEL__
+  ci_assert(current);
+  if( current->flags & PF_EXITING ? ! ci_netif_trylock(ni) :
+                                    ci_netif_lock(ni) ) {
+    ci_log("epoll: Leaking ready list %s[%d:%d]",
+           current->flags & PF_EXITING ? "at exit " : "", NI_ID(ni), id);
     return;
   }
+#else
+  ci_netif_lock(ni);
+#endif
   while( ci_ni_dllist_not_empty(ni, &ni->state->ready_lists[id]) ) {
     lnk = ci_ni_dllist_pop(ni, &ni->state->ready_lists[id]);
     w = CI_CONTAINER(citp_waitable, ready_link, lnk);
@@ -1178,8 +1185,7 @@ int ci_netif_raw_send(ci_netif* ni, int intf_i,
   pkt->buf_len = 0;
   p = pkt->dma_start;
   for( i = 0; i < iovlen; i++ ) {
-    if( p + CI_IOVEC_LEN(iov) - pkt->dma_start >
-        CI_CFG_PKT_BUF_SIZE - sizeof(pkt) ) {
+    if( p + CI_IOVEC_LEN(iov) - (ci_uint8*) pkt > CI_CFG_PKT_BUF_SIZE ) {
       ci_netif_pkt_release(ni, pkt);
       ci_netif_unlock(ni);
       return -EMSGSIZE;
