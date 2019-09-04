@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -133,4 +133,22 @@ extern int
 ci_call_usermodehelper(char *path, char **argv, char **envp, int wait);
 #endif
 
+/* A change to module_param_call() in Linux 4.15 highlighted that our
+ * callbacks should have had a const argument.  The change to use a
+ * const argument is much older than that (2.6.36)
+ */
+#ifdef EFRM_HAVE_CONST_KERNEL_PARAM
+#define ONLOAD_MPC_CONST const
+#else
+#define ONLOAD_MPC_CONST
+#endif
+
+/* init_timer() was removed in Linux 4.15, with timer_setup()
+ * replacing it */
+#ifndef EFRM_HAVE_TIMER_SETUP
+#define timer_setup(timer, callback, flags)     \
+  init_timer(timer);                            \
+  (timer)->data = 0;                            \
+  (timer)->function = &callback;
+#endif
 #endif /* __ONLOAD_KERNEL_COMPAT_H__ */

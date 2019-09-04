@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -13,6 +13,7 @@
 ** GNU General Public License for more details.
 */
 
+#include <driver/linux_onload/onload_kernel_compat.h>
 
 #include <onload/debug.h>
 #include <onload/tcp_helper_fns.h>
@@ -171,8 +172,13 @@ static void oo_timesync_stabilize_cpu_khz(struct oo_timesync* oo_ts)
   }
 }
 
-
+/* Linux 4.15 changed the argument type for the timer callback
+ * function */
+#ifdef EFRM_HAVE_TIMER_CALLBACK_TIMERLIST
+static void stabilize_cpu_khz_timer(struct timer_list *unused)
+#else
 static void stabilize_cpu_khz_timer(unsigned long unused)
+#endif
 {
   oo_timesync_update(efab_tcp_driver.timesync);
   /* If oo_timesync_update called too soon.  Start timer
@@ -209,10 +215,8 @@ int oo_timesync_ctor(struct oo_timesync *oo_ts)
 
   spin_lock_init(&timesync_lock);
 
-  init_timer(&timer_node);
+  timer_setup(&timer_node, stabilize_cpu_khz_timer, 0);
   timer_node.expires = jiffies + 1;
-  timer_node.data = 0;
-  timer_node.function = &stabilize_cpu_khz_timer;
   add_timer(&timer_node);
 
   return 0;

@@ -190,7 +190,7 @@ EFX_NEED_IPV4_IS_MULTICAST		nsymbol	ipv4_is_multicast	include/linux/in.h
 EFX_NEED_IPV4_IS_LBCAST			nsymbol	ipv4_is_lbcast		include/linux/in.h
 EFX_HAVE_LIST_SPLICE_TAIL_INIT		symbol	list_splice_tail_init	include/linux/list.h
 EFX_NEED_LIST_FIRST_ENTRY		nsymbol	list_first_entry	include/linux/list.h
-EFX_NEED_TIMESPEC_ADD_NS		nsymbol	timespec_add_ns		include/linux/time.h
+EFX_NEED_TIMESPEC_ADD_NS		nsymbol	timespec_add_ns		include/linux/time.h	include/linux/time32.h
 EFX_NEED_NS_TO_TIMESPEC			nexport ns_to_timespec		include/linux/time.h	kernel/time.c
 EFX_HAVE_TIMESPEC64			symbol	timespec64		include/linux/time64.h	include/linux/time.h
 EFX_HAVE_FDTABLE_FULL_ACCESSORS		symbol	__set_close_on_exec	include/linux/fdtable.h
@@ -252,6 +252,7 @@ EFX_HAVE_NETDEV_REGISTER_RH		symbol	register_netdevice_notifier_rh	include/linux
 EFX_HAVE_NETDEV_RFS_INFO		symbol	netdev_rfs_info		include/linux/netdevice.h
 EFX_HAVE_PCI_AER			file				include/linux/aer.h
 EFX_HAVE_EEH_DEV_CHECK_FAILURE		symbol	eeh_dev_check_failure	arch/powerpc/include/asm/eeh.h
+EFX_NEED_PCI_DEV_TO_EEH_DEV		nsymbol	pci_dev_to_eeh_dev	include/linux/pci.h
 EFX_HAVE_IOREMAP_WC			symbol	ioremap_wc		arch/$SRCARCH/include/asm/io.h include/asm-$SRCARCH/io.h include/asm-generic/io.h
 EFX_NEED_SKB_TRANSPORT_HEADER_WAS_SET	nsymbol	skb_transport_header_was_set include/linux/skbuff.h
 EFX_HAVE_OLD_KMAP_ATOMIC		custom
@@ -344,23 +345,24 @@ EFX_NEED_D_HASH_AND_LOOKUP	nexport	d_hash_and_lookup	include/linux/dcache.h fs/d
 EFX_HAVE_KTIME_UNION		custom
 EFX_NEED_HWMON_DEVICE_REGISTER_WITH_INFO	nsymbol	hwmon_device_register_with_info	include/linux/hwmon.h
 EFX_HAVE_NDO_UDP_TUNNEL_ADD	member	struct_net_device_ops	ndo_udp_tunnel_add	include/linux/netdevice.h
-EFX_NEED_PAGE_REF_ADD		nfile				include/linux/page_ref.h
 EFX_HAVE_NEW_FLOW_KEYS		member	struct_flow_keys	basic		include/net/flow_dissector.h
 EFX_HAVE_SKB_ENCAPSULATION	bitfield	struct_sk_buff	encapsulation	include/linux/skbuff.h
 EFX_HAVE_NDO_ADD_GENEVE_PORT	member	struct_net_device_ops	ndo_add_geneve_port	include/linux/netdevice.h
-EFX_NEED_D_HASH_AND_LOOKUP	nexport	d_hash_and_lookup	include/linux/dcache.h fs/dcache.c
 EFX_HAVE_NETDEV_MTU_LIMITS	member	struct_net_device	max_mtu	include/linux/netdevice.h
-EFX_HAVE_KTIME_UNION		custom
 EFX_NEED_BOOL_NAPI_COMPLETE_DONE	nsymtype	napi_complete_done	include/linux/netdevice.h	bool (struct napi_struct *, int)
-EFX_NEED_HWMON_DEVICE_REGISTER_WITH_INFO	nsymbol	hwmon_device_register_with_info	include/linux/hwmon.h
-EFX_HAVE_XDP	symbol	netdev_xdp	include/linux/netdevice.h
+EFX_HAVE_XDP	symbol	netdev_bpf	include/linux/netdevice.h
+EFX_HAVE_XDP_OLD	symbol	netdev_xdp	include/linux/netdevice.h
 EFX_HAVE_XDP_TRACE	file	include/trace/events/xdp.h
 EFX_HAVE_XDP_HEAD	member	struct_xdp_buff	data_hard_start	include/linux/filter.h
 EFX_HAVE_XDP_TX		symbol	XDP_TX		include/uapi/linux/bpf.h
 EFX_HAVE_XDP_REDIR	symbol	XDP_REDIRECT	include/uapi/linux/bpf.h
+EFX_HAVE_XDP_RXQ_INFO	symbol	xdp_rxq_info	include/net/xdp.h
+EFX_HAVE_XDP_EXT	member	struct_net_device_ops_extended	ndo_xdp	include/linux/netdevice.h
 EFX_NEED_PAGE_FRAG_FREE	nsymbol	page_frag_free	include/linux/gfp.h
 EFX_HAVE_FREE_PAGE_FRAG	symbol	__free_page_frag	include/linux/gfp.h
 EFX_NEED_VOID_SKB_PUT	nsymtype	skb_pub	include/linux/skbuff.h	void *skb_put(struct sk_buff *, unsigned int)
+EFX_HAVE_NETDEV_EXT_MTU_LIMITS	member	struct_net_device_extended	max_mtu	include/linux/netdevice.h
+EFX_HAVE_NDO_EXT_CHANGE_MTU	memtype	struct_net_device_ops_extended	ndo_change_mtu	include/linux/netdevice.h	int (*)(struct net_device *, int)
 " | egrep -v -e '^#' -e '^$' | sed 's/[ \t][ \t]*/:/g'
 }
 
@@ -863,7 +865,7 @@ function do_EFX_NEED_PTP_CLOCK_PPSUSR
 
 function do_EFX_HAVE_PHC_SUPPORT
 {
-    if [ "$CONFIG_PTP_1588_CLOCK" = "y" ] || [ "$CONFIG_PTP_1588_CLOCK" = "m" ]; then
+    if [ "${CONFIG_PTP_1588_CLOCK:-}" = "y" ] || [ "${CONFIG_PTP_1588_CLOCK:-}" = "m" ]; then
         # Ideally this would use this (but it is a deferred test)
         #   test_member struct ptp_clock_event ptp_evt pps_times
         # NB pps_times is needed for the PTP_CLOCK_PPSUSR event
@@ -894,19 +896,6 @@ function do_EFX_HAVE_OLD_KMAP_ATOMIC
 void *f(struct page *p)
 {
 	return kmap_atomic(p);
-}
-"
-}
-
-function do_EFX_HAVE_KTIME_UNION
-{
-	defer_test_compile pos "
-#include <linux/ktime.h>
-
-void f(void)
-{
-	ktime_t t;
-	t.tv64 = 0;
 }
 "
 }
@@ -956,16 +945,24 @@ unset M
 unset TOPDIR
 
 # Filter out make options except for job-server (parallel make)
-set +u
-old_MAKEFLAGS="$MAKEFLAGS"
-set -u
+old_MAKEFLAGS="${MAKEFLAGS:-}"
 MAKEFLAGS=
+next=
 for word in $old_MAKEFLAGS; do
     case "$word" in
-	'-j' | '--jobserver-fds='*)
+	'-j' | '-l')
+	    export MAKEFLAGS="$MAKEFLAGS $word"
+	    next=1
+	    ;;
+	'-j'* | '-l'*)
+	    export MAKEFLAGS="$MAKEFLAGS $word"
+	    ;;
+	'--jobserver-fds'* | '--jobs='* | '--jobs' | '--load-average'*)
 	    export MAKEFLAGS="$MAKEFLAGS $word"
 	    ;;
 	*)
+	    test -n "$next" && export MAKEFLAGS="$MAKEFLAGS $word"
+	    next=
 	    ;;
     esac
 done
@@ -989,17 +986,19 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+vmsg "MAKEFLAGS  := $MAKEFLAGS"
+
 # resolve KVER and KPATH
 [ -z "$KVER" ] && [ -z "$KPATH" ] && KVER=`uname -r`
 [ -z "$KPATH" ] && KPATH=/lib/modules/$KVER/build
 
 # Need to set CC explicitly on the kernel make line
 # Needs to override top-level kernel Makefile setting
-set +u
-if [ -n "$CC" ]; then
-    EXTRA_MAKEFLAGS="CC=$CC"
+# Somehow this script does the wrong thing when ccache is used, so disable
+# that.
+if [ -n "${CC:-}" ]; then
+    EXTRA_MAKEFLAGS=CC=\"${CC/ccache /}\"
 fi
-set -u
 
 # Select the right warnings - complicated by working out which options work
 makefile_prefix='
@@ -1054,11 +1053,11 @@ eval $(read_make_variables KBUILD_SRC ARCH SRCARCH CONFIG_X86_32 CONFIG_X86_64 C
 #     KBUILD_SRC:         If not already set, same as KPATH
 #     SRCARCH:            If not already set, same as ARCH
 #     WORDSUFFIX:         Suffix added to some filenames by the i386/amd64 merge
-[ -n "$KBUILD_SRC" ] || KBUILD_SRC=$KPATH
-[ -n "$SRCARCH" ] || SRCARCH=$ARCH
-if [ "$ARCH" = "i386" ] || [ "$CONFIG_X86_32" = "y" ]; then
+[ -n "${KBUILD_SRC:-}" ] || KBUILD_SRC=$KPATH
+[ -n "${SRCARCH:-}" ] || SRCARCH=$ARCH
+if [ "$ARCH" = "i386" ] || [ "${CONFIG_X86_32:-}" = "y" ]; then
     WORDSUFFIX=_32
-elif [ "$ARCH" = "x86_64" ] || [ "$CONFIG_X86_64" = "y" ]; then
+elif [ "$ARCH" = "x86_64" ] || [ "${CONFIG_X86_64:-}" = "y" ]; then
     WORDSUFFIX=_64
 else
     WORDSUFFIX=
@@ -1128,7 +1127,7 @@ for symbol in $kompat_symbols; do
 done
 
 # Run the deferred compile tests
-make -C $KPATH -k $EXTRA_MAKEFLAGS M="$compile_dir" \
+eval make -C $KPATH -k $EXTRA_MAKEFLAGS M="$compile_dir" \
     >"$compile_dir/log" 2>&1 \
     || true
 if [ $verbose = true ]; then

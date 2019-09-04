@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -61,7 +61,6 @@ enum efx_mcdi_cmd_state {
 	MCDI_STATE_ABORT,
 };
 
-typedef void efx_mcdi_async_starter(struct efx_nic *efx, unsigned long cookie);
 typedef void efx_mcdi_async_completer(struct efx_nic *efx,
 				      unsigned long cookie, int rc,
 				      efx_dword_t *outbuf,
@@ -109,7 +108,7 @@ struct efx_mcdi_cmd {
 	u8 bufid;
 	unsigned long started;
 	unsigned long cookie;
-	efx_mcdi_async_starter *starter;
+	efx_mcdi_async_completer *atomic_completer;
 	efx_mcdi_async_completer *completer;
 	unsigned int handle;
 	unsigned int cmd;
@@ -139,6 +138,7 @@ struct efx_mcdi_iface {
 	spinlock_t iface_lock;
 	struct list_head cmd_list;
 	struct workqueue_struct *workqueue;
+	unsigned int outstanding_cleanups;
 	wait_queue_head_t cmd_complete_wq;
 	struct efx_mcdi_cmd *db_held_by;
 	struct efx_mcdi_cmd *seq_held_by[16];
@@ -215,10 +215,10 @@ int efx_mcdi_rpc_async_quiet(struct efx_nic *efx, unsigned int cmd,
 			     unsigned long cookie);
 int efx_mcdi_rpc_async_ext(struct efx_nic *efx, unsigned int cmd,
 			   const efx_dword_t *inbuf, size_t inlen,
-			   efx_mcdi_async_starter *starter,
+			   efx_mcdi_async_completer *atomic_completer,
 			   efx_mcdi_async_completer *completer,
 			   unsigned long cookie, bool quiet,
-			   unsigned int *handle);
+			   bool immediate_only, unsigned int *handle);
 
 /* Attempt to cancel an outstanding command.
  * This function guarantees that the completion function will never be called
@@ -233,7 +233,14 @@ void efx_mcdi_display_error(struct efx_nic *efx, unsigned int cmd,
 int efx_mcdi_poll_reboot(struct efx_nic *efx);
 void efx_mcdi_mode_poll(struct efx_nic *efx);
 void efx_mcdi_mode_event(struct efx_nic *efx);
-void efx_mcdi_flush(struct efx_nic *efx);
+/* Wait for all commands and all cleanup for them to be complete */
+void efx_mcdi_wait_for_cleanup(struct efx_nic *efx);
+/* Wait for all commands to be complete */
+int efx_mcdi_wait_for_quiescence(struct efx_nic *efx,
+				 unsigned int timeout_jiffies);
+/* Indicate to the MCDI module that MC reset processing is complete
+ * so new commands can now be sent.
+ */
 void efx_mcdi_post_reset(struct efx_nic *efx);
 
 int efx_mcdi_process_event(struct efx_channel *channel,

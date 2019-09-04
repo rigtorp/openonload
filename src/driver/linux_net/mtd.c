@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -57,8 +57,10 @@ static int efx_mtd_erase(struct mtd_info *mtd, struct erase_info *erase)
 	int rc;
 
 	rc = efx->type->mtd_erase(mtd, erase->addr, erase->len);
+#if defined(EFX_USE_KCOMPAT) && defined(MTD_ERASE_DONE)
 	erase->state = rc ? MTD_ERASE_FAILED : MTD_ERASE_DONE;
 	mtd_erase_callback(erase);
+#endif
 	return rc;
 }
 

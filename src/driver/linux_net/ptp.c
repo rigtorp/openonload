@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -755,7 +755,11 @@ static ssize_t show_max_adjfreq(struct device *dev,
 				 char *buff)
 {
 	struct efx_nic *efx = pci_get_drvdata(to_pci_dev(dev));
-	s32 max_adjfreq = efx->primary->ptp_data->max_adjfreq;
+	struct efx_nic *primary = efx->primary;
+	s32 max_adjfreq = 0;
+
+	if (primary && primary->ptp_data)
+	        max_adjfreq = primary->ptp_data->max_adjfreq;
 
 	return sprintf(buff, "%d\n", max_adjfreq);
 }
@@ -1226,7 +1230,7 @@ static void efx_ptp_handle_no_channel(struct efx_nic *efx)
 #endif
 
 struct efx_ptp_mcdi_data {
-	bool started;
+	struct kref ref;
 	bool done;
 	spinlock_t done_lock;
 	wait_queue_head_t wq;
@@ -1234,6 +1238,11 @@ struct efx_ptp_mcdi_data {
 	size_t resplen;
 	efx_dword_t *outbuf;
 };
+
+static void efx_ptp_mcdi_data_release(struct kref *ref)
+{
+	kfree(container_of(ref, struct efx_ptp_mcdi_data, ref));
+}
 
 static void efx_ptp_send_times(struct efx_nic *efx,
 			       struct pps_event_time *last_time,
@@ -1519,14 +1528,6 @@ efx_ptp_process_times(struct efx_nic *efx, MCDI_DECLARE_STRUCT_PTR(synch_buf),
 	return 0;
 }
 
-static void efx_ptp_cmd_started(struct efx_nic *efx, unsigned long cookie)
-{
-	struct efx_ptp_mcdi_data *data = (struct efx_ptp_mcdi_data *) cookie;
-
-	data->started = true;
-	wake_up(&data->wq);
-}
-
 static void efx_ptp_cmd_complete(struct efx_nic *efx, unsigned long cookie,
 				 int rc, efx_dword_t *outbuf,
 				 size_t outlen_actual)
@@ -1541,13 +1542,14 @@ static void efx_ptp_cmd_complete(struct efx_nic *efx, unsigned long cookie,
 	data->done = true;
 	spin_unlock_bh(&data->done_lock);
 	wake_up(&data->wq);
+	kref_put(&data->ref, efx_ptp_mcdi_data_release);
 }
 
 /* Synchronize times between the host and the MC */
 static int efx_ptp_synchronize(struct efx_nic *efx, unsigned int num_readings)
 {
 	struct efx_ptp_data *ptp = efx->ptp_data;
-	struct efx_ptp_mcdi_data mcdi_data;
+	struct efx_ptp_mcdi_data *mcdi_data;
 	unsigned int mcdi_handle;
 	MCDI_DECLARE_BUF(inbuf, MC_CMD_PTP_IN_SYNCHRONIZE_LEN);
 	MCDI_DECLARE_BUF(outbuf, MC_CMD_PTP_OUT_SYNCHRONIZE_LENMAX);
@@ -1557,7 +1559,18 @@ static int efx_ptp_synchronize(struct efx_nic *efx, unsigned int num_readings)
 	unsigned int loops = 0;
 	int *start = ptp->start.addr;
 	static const unsigned int PTP_SYNC_TIMEOUT = 10 * HZ;
+	static const unsigned int PTP_START_TIMEOUT = PTP_SYNC_TIMEOUT * 4;
 	unsigned long started;
+
+	mcdi_data = kmalloc(sizeof(*mcdi_data), GFP_KERNEL);
+	if (!mcdi_data)
+		return -ENOMEM;
+
+	kref_init(&mcdi_data->ref);
+	mcdi_data->done = false;
+	init_waitqueue_head(&mcdi_data->wq);
+	spin_lock_init(&mcdi_data->done_lock);
+	mcdi_data->outbuf = outbuf;
 
 	MCDI_SET_DWORD(inbuf, PTP_IN_OP, MC_CMD_PTP_OP_SYNCHRONIZE);
 	MCDI_SET_DWORD(inbuf, PTP_IN_PERIPH_ID, 0);
@@ -1565,70 +1578,72 @@ static int efx_ptp_synchronize(struct efx_nic *efx, unsigned int num_readings)
 		       num_readings);
 	MCDI_SET_QWORD(inbuf, PTP_IN_SYNCHRONIZE_START_ADDR,
 		       ptp->start.dma_addr);
-	mcdi_data.started = false;
-	mcdi_data.done = false;
-	init_waitqueue_head(&mcdi_data.wq);
-	spin_lock_init(&mcdi_data.done_lock);
-	mcdi_data.outbuf = outbuf;
 
 	/* Clear flag that signals MC ready */
 	WRITE_ONCE(*start, 0);
 	started = jiffies;
-	rc = efx_mcdi_rpc_async_ext(efx, MC_CMD_PTP,
+	timeout = started + PTP_START_TIMEOUT;
+	/* Get an additional reference - if efx_mcdi_rpc_async_ext returns
+	 * successfully then the reference is no longer owned by us.:w
+	 */
+	kref_get(&mcdi_data->ref);
+	while ((rc = efx_mcdi_rpc_async_ext(efx, MC_CMD_PTP,
 				    inbuf, MC_CMD_PTP_IN_SYNCHRONIZE_LEN,
-				    efx_ptp_cmd_started,
 				    efx_ptp_cmd_complete,
-				    (unsigned long)&mcdi_data,
-				    false, &mcdi_handle);
+				    NULL,
+				    (unsigned long) mcdi_data,
+				    false, true, &mcdi_handle)) == -EAGAIN &&
+	       time_before(jiffies, timeout))
+		efx_mcdi_wait_for_quiescence(efx, PTP_START_TIMEOUT);
 
-	/* Wait for MCDI command to be sent */
-	if (rc == 0)
-		if (!wait_event_timeout(mcdi_data.wq, mcdi_data.started,
-					PTP_SYNC_TIMEOUT) &&
-		    !mcdi_data.started) {
-			netif_err(efx, drv, efx->net_dev,
-				  "MC command 0x%x timed out (ptp) after %u ms\n",
-				  MC_CMD_PTP,
-				  jiffies_to_msecs(jiffies - started));
-			efx_mcdi_cancel_cmd(efx, mcdi_handle);
-			rc = -ETIMEDOUT;
-		}
+	if (rc)
+		/* Completer won't be called. */
+		kref_put(&mcdi_data->ref, efx_ptp_mcdi_data_release);
+
+	if (rc == -EAGAIN) {
+		netif_err(efx, drv, efx->net_dev,
+			  "MC PTP_OP command timed out trying to send after %u ms\n",
+			  jiffies_to_msecs(jiffies - started));
+		rc = -ETIMEDOUT;
+	}
 
 	if (rc == 0) {
 		/* Wait for start from MC (or timeout) */
 		timeout = jiffies + msecs_to_jiffies(MAX_SYNCHRONISE_WAIT_MS);
-		while (!READ_ONCE(mcdi_data.done) && !READ_ONCE(*start) &&
+		while (!READ_ONCE(mcdi_data->done) && !READ_ONCE(*start) &&
 		       (time_before(jiffies, timeout))) {
 			udelay(20); /* Usually start MCDI execution quickly */
 			loops++;
 		}
 
-		if (mcdi_data.done || !READ_ONCE(*start))
+		if (mcdi_data->done || !READ_ONCE(*start))
 			++ptp->sync_timeouts;
 		else if (loops <= 1)
 			++ptp->fast_syncs;
 
-		if (!mcdi_data.done && READ_ONCE(*start))
-			efx_ptp_send_times(efx, &last_time, &mcdi_data);
+		if (!mcdi_data->done && READ_ONCE(*start))
+			efx_ptp_send_times(efx, &last_time, mcdi_data);
 
-		if (!wait_event_timeout(mcdi_data.wq, mcdi_data.done,
+		if (!wait_event_timeout(mcdi_data->wq, mcdi_data->done,
 					PTP_SYNC_TIMEOUT) &&
-		    !mcdi_data.done) {
+		    !mcdi_data->done) {
 			efx_mcdi_cancel_cmd(efx, mcdi_handle);
 			rc = -ETIMEDOUT;
 		} else {
-			rc = mcdi_data.rc;
+			rc = mcdi_data->rc;
 		}
 	}
 
 	if (rc == 0) {
-		rc = efx_ptp_process_times(efx, mcdi_data.outbuf,
-					   mcdi_data.resplen, &last_time);
+		rc = efx_ptp_process_times(efx, mcdi_data->outbuf,
+					   mcdi_data->resplen, &last_time);
 		if (rc == 0)
 			++ptp->good_syncs;
 		else
 			++ptp->no_time_syncs;
 	}
+
+	kref_put(&mcdi_data->ref, efx_ptp_mcdi_data_release);
 
 	/* Increment the bad syncs counter if the synchronize fails, whatever
 	 * the reason.
@@ -2515,12 +2530,37 @@ bool efx_ptp_uses_separate_channel(struct efx_nic *efx)
 }
 
 
+static bool efx_ptp_expose_clock(struct efx_nic *efx)
+{
+	static bool exposed = false;
+
+	/* Always provide a clock on the primary PF of every adapter. */
+	if (efx->mcdi->fn_flags &
+	    (1 << MC_CMD_DRV_ATTACH_EXT_OUT_FLAG_PRIMARY)) {
+		exposed = true;
+		return true;
+	}
+
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_PHC_SUPPORT)
+#ifdef CONFIG_SFC_SRIOV
+	/* In a VM expose exactly 1 PHC clock on a VF, even across adapters. */
+	if ((efx_nic_rev(efx) >= EFX_REV_HUNT_A0) &&
+	    efx->type->is_vf && !exposed) {
+		exposed = true;
+		return true;
+	}
+#endif
+#endif
+	return false;
+}
+
 /* Initialise PTP state. */
 int efx_ptp_probe(struct efx_nic *efx, struct efx_channel *channel)
 {
 	struct efx_ptp_data *ptp;
 	int rc = 0;
 	unsigned int pos;
+	bool clock_exposed;
 
 	ptp = kzalloc(sizeof(struct efx_ptp_data), GFP_KERNEL);
 	efx->ptp_data = ptp;
@@ -2594,9 +2634,9 @@ int efx_ptp_probe(struct efx_nic *efx, struct efx_channel *channel)
 	/* TODO: add MCDI call to get this value from the NIC */
 	ptp->max_adjfreq = MAX_PPB;
 
+	clock_exposed = efx_ptp_expose_clock(efx);
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_PHC_SUPPORT)
-	if (efx->mcdi->fn_flags &
-	    (1 << MC_CMD_DRV_ATTACH_EXT_OUT_FLAG_PRIMARY)) {
+	if (clock_exposed) {
 		ptp->phc_clock_info = efx_phc_clock_info;
 		ptp->phc_clock_info.max_adj = ptp->max_adjfreq;
 		ptp->phc_clock = ptp_clock_register(&ptp->phc_clock_info,
@@ -2640,12 +2680,11 @@ int efx_ptp_probe(struct efx_nic *efx, struct efx_channel *channel)
 		goto fail6;
 #endif
 
-	/* Only advertise ptp_caps for primary function, otherwise
+	/* Only advertise ptp_caps when a clock was exposed, otherwise
 	 * older versions of sfptpd will try to synchronise multiple
 	 * net devices that share a clock.
 	 */
-	if (efx->mcdi->fn_flags &
-	    (1 << MC_CMD_DRV_ATTACH_EXT_OUT_FLAG_PRIMARY)) {
+	if (clock_exposed) {
 		rc = device_create_file(&efx->pci_dev->dev,
 					&dev_attr_ptp_caps);
 		if (rc < 0)
@@ -2753,8 +2792,9 @@ void efx_ptp_remove(struct efx_nic *efx)
 	skb_queue_purge(&efx->ptp_data->txq);
 
 #ifdef EFX_NOT_UPSTREAM
-	if (efx->mcdi->fn_flags &
-	    (1 << MC_CMD_DRV_ATTACH_EXT_OUT_FLAG_PRIMARY))
+	if ((efx->mcdi->fn_flags &
+	     (1 << MC_CMD_DRV_ATTACH_EXT_OUT_FLAG_PRIMARY)) ||
+	    efx->ptp_data->phc_clock)
 		device_remove_file(&efx->pci_dev->dev, &dev_attr_ptp_caps);
 	device_remove_file(&efx->pci_dev->dev, &dev_attr_max_adjfreq);
 #endif
@@ -3056,7 +3096,9 @@ void efx_ptp_get_ts_info(struct efx_nic *efx, struct ethtool_ts_info *ts_info)
 				~SOF_TIMESTAMPING_TX_HARDWARE;
 	}
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_PHC_SUPPORT)
-	if (primary && primary->ptp_data && primary->ptp_data->phc_clock)
+	if (ptp->phc_clock)
+		ts_info->phc_index = ptp_clock_index(ptp->phc_clock);
+	else if (primary && primary->ptp_data && primary->ptp_data->phc_clock)
 		ts_info->phc_index =
 			ptp_clock_index(primary->ptp_data->phc_clock);
 #else
@@ -3147,14 +3189,28 @@ int efx_ptp_get_ts_config(struct efx_nic *efx, struct ifreq *ifr)
 }
 
 #if defined(EFX_NOT_UPSTREAM)
+static struct ptp_clock_info *efx_ptp_clock_info(struct efx_nic *efx)
+{
+	struct ptp_clock_info *phc_clock_info;
+
+	if (!efx->ptp_data)
+		return NULL;
+
+	phc_clock_info = &efx->ptp_data->phc_clock_info;
+	if (!phc_clock_info && efx->primary && efx->primary->ptp_data)
+		phc_clock_info = &efx->primary->ptp_data->phc_clock_info;
+
+	return phc_clock_info;
+}
+
 int efx_ptp_ts_settime(struct efx_nic *efx, struct efx_ts_settime *settime)
 {
-	struct efx_nic *primary = efx->primary;
+	struct ptp_clock_info *phc_clock_info = efx_ptp_clock_info(efx);
 	int ret;
 	struct timespec64 ts;
 	s64 delta;
 
-	if (!efx->ptp_data || !primary || !primary->ptp_data)
+	if (!phc_clock_info)
 		return -ENOTTY;
 
 	ts.tv_sec = settime->ts.tv_sec;
@@ -3163,10 +3219,9 @@ int efx_ptp_ts_settime(struct efx_nic *efx, struct efx_ts_settime *settime)
 	if (settime->iswrite) {
 		delta = timespec64_to_ns(&ts);
 
-		return efx_phc_adjtime(&primary->ptp_data->phc_clock_info,
-				       delta);
+		return efx_phc_adjtime(phc_clock_info, delta);
 	} else {
-		ret = efx_phc_gettime(&primary->ptp_data->phc_clock_info, &ts);
+		ret = efx_phc_gettime(phc_clock_info, &ts);
 		if (!ret) {
 			settime->ts.tv_sec = ts.tv_sec;
 			settime->ts.tv_nsec = ts.tv_nsec;
@@ -3177,13 +3232,17 @@ int efx_ptp_ts_settime(struct efx_nic *efx, struct efx_ts_settime *settime)
 
 int efx_ptp_ts_adjtime(struct efx_nic *efx, struct efx_ts_adjtime *adjtime)
 {
-	struct efx_nic *primary = efx->primary;
-	
-	if (!efx->ptp_data || !primary || !primary->ptp_data)
+	struct ptp_clock_info *phc_clock_info = efx_ptp_clock_info(efx);
+
+	if (!phc_clock_info)
 		return -ENOTTY;
 
-	return efx_phc_adjfreq(&primary->ptp_data->phc_clock_info,
-			       adjtime->adjustment);
+	if (adjtime->adjustment > MAX_PPB)
+		adjtime->adjustment = MAX_PPB;
+	else if (adjtime->adjustment < -MAX_PPB)
+		adjtime->adjustment = -MAX_PPB;
+
+	return efx_phc_adjfreq(phc_clock_info, adjtime->adjustment);
 }
 
 int efx_ptp_ts_sync(struct efx_nic *efx, struct efx_ts_sync *sync)

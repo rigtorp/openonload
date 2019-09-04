@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -503,8 +503,10 @@ extern int onload_alloc_file(tcp_helper_resource_t *thr, oo_sp ep_id,
 extern int oo_clone_fd(struct file* filp, int do_cloexec);
 
 ci_inline void
-efab_get_os_settings(ci_netif_config_opts *opts)
+efab_get_os_settings(tcp_helper_resource_t* trs)
 {
+  ci_netif_config_opts *opts = &NI_OPTS_TRS(trs);
+
   /* We do not overwrite values from userland, so exit if opts are already
    * inited. */
   if (opts->inited)
@@ -516,12 +518,20 @@ efab_get_os_settings(ci_netif_config_opts *opts)
   ** the system and other factors that usually affect linux kernel
   ** logic. The RCVBUF can safely go beyong thyis value. */
   opts->tcp_sndbuf_min = CI_CFG_TCP_SNDBUF_MIN;
+  opts->tcp_rcvbuf_min = CI_CFG_TCP_RCVBUF_MIN;
+
+  /* Linux 4.15 moved these values into network namespace structures */
+#if defined(EFRM_DO_NAMESPACES) && defined(EFRM_HAVE_NS_SYSCTL_TCP_MEM)
+  opts->tcp_sndbuf_def = trs->nsproxy->net_ns->ipv4.sysctl_tcp_wmem[1];
+  opts->tcp_sndbuf_max = trs->nsproxy->net_ns->ipv4.sysctl_tcp_wmem[2];
+  opts->tcp_rcvbuf_def = trs->nsproxy->net_ns->ipv4.sysctl_tcp_rmem[1];
+  opts->tcp_rcvbuf_max = trs->nsproxy->net_ns->ipv4.sysctl_tcp_rmem[2];
+#else
   opts->tcp_sndbuf_def = sysctl_tcp_wmem[1];
   opts->tcp_sndbuf_max = sysctl_tcp_wmem[2];
-
-  opts->tcp_rcvbuf_min = CI_CFG_TCP_RCVBUF_MIN;
   opts->tcp_rcvbuf_def = sysctl_tcp_rmem[1];
   opts->tcp_rcvbuf_max = sysctl_tcp_rmem[2];
+#endif
 #ifdef LINUX_HAS_SYSCTL_MEM_MAX
   opts->udp_sndbuf_max = sysctl_wmem_max;
   opts->udp_rcvbuf_max = sysctl_rmem_max;

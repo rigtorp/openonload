@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -120,7 +120,7 @@ enum {
 #define EFX_EF10_FILTER_ID_INVALID 0xffff
 
 #define EFX_EF10_FILTER_DEV_UC_MAX	32
-#define EFX_EF10_FILTER_DEV_MC_MAX	256
+#define EFX_EF10_FILTER_DEV_MC_MAX	512
 
 #define MCDI_BUF_LEN (8 + MCDI_CTL_SDU_LEN_MAX)
 
@@ -944,6 +944,11 @@ static int efx_ef10_probe(struct efx_nic *efx)
 	if (rc)
 		goto fail5;
 
+	/* License checking on the firmware must finish before we can trust the
+	 * capabilities. Before that some will not be set.
+	 */
+	efx_ef10_read_licensed_features(efx);
+
 	rc = efx_ef10_init_datapath_caps(efx);
 	if (rc < 0)
 		goto fail5;
@@ -1055,10 +1060,6 @@ static int efx_ef10_probe(struct efx_nic *efx)
         }
 #endif
 
-	/* License checking on the firmware must finish before we can trust the
-	 * PTP capabilities. Before that it will not be set.
-	 */
-	efx_ef10_read_licensed_features(efx);
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_NET_TSTAMP)
 	efx_ptp_get_attributes(efx);
 	if (efx_ptp_uses_separate_channel(efx) ||
@@ -2305,8 +2306,7 @@ static void efx_ef10_monitor(struct efx_nic *efx)
 #if defined(CONFIG_EEH)
 	{
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_EEH_DEV_CHECK_FAILURE)
-	struct eeh_dev *eehdev =
-		of_node_to_eeh_dev(pci_device_to_OF_node(efx->pci_dev));
+	struct eeh_dev *eehdev = pci_dev_to_eeh_dev(efx->pci_dev);
 
 	eeh_dev_check_failure(eehdev);
 #else
@@ -4736,7 +4736,8 @@ static int efx_ef10_handle_rx_event(struct efx_channel *channel,
 
 	rx_queue = efx_channel_get_rx_queue(channel);
 
-	if (unlikely(rx_queue_label != efx_rx_queue_index(rx_queue)))
+	if (unlikely(rx_queue_label != efx_rx_queue_index(rx_queue) %
+		     (1 << ESF_DZ_RX_QLABEL_WIDTH)))
 		efx_ef10_handle_rx_wrong_queue(rx_queue, rx_queue_label);
 
 	n_descs = ((next_ptr_lbits - rx_queue->removed_count) &
@@ -8008,6 +8009,9 @@ static int efx_ef10_mtd_probe_partition(struct efx_nic *efx,
 	part->mtd.flags = MTD_CAP_NORFLASH;
 	part->mtd.size = size;
 	part->mtd.erasesize = erase_size;
+	if (!erase_size)
+		part->mtd.flags |= MTD_NO_ERASE;
+
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_USE_MTD_WRITESIZE)
 	part->mtd.writesize = write_size;
 #else
@@ -8070,9 +8074,6 @@ static void efx_ef10_ptp_write_host_time(struct efx_nic *efx, u32 host_time)
 {
 	_efx_writed(efx, cpu_to_le32(host_time), ER_DZ_MC_DB_LWRD);
 }
-
-static void efx_ef10_ptp_write_host_time_vf(struct efx_nic *Efx, u32 host_time) {}
-
 #endif /* CONFIG_SFC_PTP */
 
 #ifdef EFX_NOT_UPSTREAM
@@ -8198,12 +8199,6 @@ static int efx_ef10_rx_disable_timestamping(struct efx_channel *channel,
 			  inbuf, sizeof(inbuf), NULL, 0, NULL);
 
 	return rc;
-}
-
-static int efx_ef10_ptp_set_ts_config_vf(struct efx_nic *efx,
-				      struct hwtstamp_config *init)
-{
-	return -EOPNOTSUPP;
 }
 
 static int efx_ef10_ptp_set_ts_sync_events(struct efx_nic *efx, bool en,
@@ -8729,8 +8724,8 @@ const struct efx_nic_type efx_hunt_a0_vf_nic_type = {
 	.mtd_probe = efx_port_dummy_op_int,
 #endif
 #ifdef CONFIG_SFC_PTP
-	.ptp_write_host_time = efx_ef10_ptp_write_host_time_vf,
-	.ptp_set_ts_config = efx_ef10_ptp_set_ts_config_vf,
+	.ptp_write_host_time = efx_ef10_ptp_write_host_time,
+	.ptp_set_ts_config = efx_ef10_ptp_set_ts_config,
 #endif
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_NDO_VLAN_RX_ADD_VID)
 	.vlan_rx_add_vid = efx_ef10_vlan_rx_add_vid,

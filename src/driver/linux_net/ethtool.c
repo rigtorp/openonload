@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -492,13 +492,13 @@ static size_t efx_describe_per_queue_stats(struct efx_nic *efx, u8 *strings)
 		}
 	}
 	if (efx->xdp_tx_queue_count && efx->xdp_tx_queues) {
-		int xdp;
+		unsigned short xdp;
 
 		for (xdp = 0; xdp < efx->xdp_tx_queue_count; xdp++) {
 			n_stats++;
 			if (strings != NULL) {
 				snprintf(strings, ETH_GSTRING_LEN,
-					 "tx-xdp-cpu-%u.tx_packets", xdp);
+					 "tx-xdp-cpu-%hu.tx_packets", xdp);
 				strings += ETH_GSTRING_LEN;
 			}
 		}

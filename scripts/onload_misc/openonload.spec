@@ -31,7 +31,7 @@
 # --define 'ppc_at </opt cc path>
 
 
-%define pkgversion 201710
+%define pkgversion 201710-u1.1
 
 %{!?kernel:  %{expand: %%define kernel %%(uname -r)}}
 %{!?target_cpu:  %{expand: %%define target_cpu %{_host_cpu}}}

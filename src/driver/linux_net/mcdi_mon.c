@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -225,10 +225,10 @@ struct efx_mcdi_mon_attribute {
 	unsigned int type;
 	enum hwmon_sensor_types hwmon_type;
 	unsigned int limit_value;
-	unsigned int file_index;
 	enum efx_hwmon_attribute hwmon_attribute;
+	u8 file_index;
 #if defined(EFX_USE_KCOMPAT) && defined(EFX_NEED_HWMON_DEVICE_REGISTER_WITH_INFO)
-	char name[12];
+	char name[15];
 #endif
 };
 
@@ -447,32 +447,32 @@ static int efx_mcdi_mon_create_files(struct device *dev,
 		switch (attr->hwmon_attribute) {
 		case EFX_HWMON_INPUT:
 			attr->dev_attr.show = efx_mcdi_mon_show_value;
-			snprintf(attr->name, sizeof(attr->name), "%s%u_input",
+			snprintf(attr->name, sizeof(attr->name), "%s%hhu_input",
 				 hwmon_prefix, attr->file_index);
 			break;
 		case EFX_HWMON_MIN:
 			attr->dev_attr.show = efx_mcdi_mon_show_limit;
-			snprintf(attr->name, sizeof(attr->name), "%s%u_min",
+			snprintf(attr->name, sizeof(attr->name), "%s%hhu_min",
 				 hwmon_prefix, attr->file_index);
 			break;
 		case EFX_HWMON_MAX:
 			attr->dev_attr.show = efx_mcdi_mon_show_limit;
-			snprintf(attr->name, sizeof(attr->name), "%s%u_max",
+			snprintf(attr->name, sizeof(attr->name), "%s%hhu_max",
 				 hwmon_prefix, attr->file_index);
 			break;
 		case EFX_HWMON_CRIT:
 			attr->dev_attr.show = efx_mcdi_mon_show_limit;
-			snprintf(attr->name, sizeof(attr->name), "%s%u_crit",
+			snprintf(attr->name, sizeof(attr->name), "%s%hhu_crit",
 				 hwmon_prefix, attr->file_index);
 			break;
 		case EFX_HWMON_ALARM:
 			attr->dev_attr.show = efx_mcdi_mon_show_alarm;
-			snprintf(attr->name, sizeof(attr->name), "%s%u_alarm",
+			snprintf(attr->name, sizeof(attr->name), "%s%hhu_alarm",
 				 hwmon_prefix, attr->file_index);
 			break;
 		case EFX_HWMON_LABEL:
 			attr->dev_attr.show = efx_mcdi_mon_show_label;
-			snprintf(attr->name, sizeof(attr->name), "%s%u_label",
+			snprintf(attr->name, sizeof(attr->name), "%s%hhu_label",
 				 hwmon_prefix, attr->file_index);
 			break;
 		case EFX_HWMON_NAME:
@@ -755,7 +755,7 @@ static const struct hwmon_chip_info efx_hwmon_chip_info = {
 static void
 efx_mcdi_mon_add_attr(struct efx_nic *efx,
 		      unsigned int index, unsigned int type,
-		      unsigned int limit_value, unsigned int file_index,
+		      unsigned int limit_value, u8 file_index,
 		      enum efx_hwmon_attribute attribute)
 {
 	struct efx_mcdi_mon *hwmon = efx_mcdi_mon(efx);
@@ -776,7 +776,7 @@ efx_mcdi_mon_add_attr(struct efx_nic *efx,
 int efx_mcdi_mon_probe(struct efx_nic *efx)
 {
 	struct efx_mcdi_mon *hwmon = efx_mcdi_mon(efx);
-	unsigned int n_temp = 0, n_cool = 0, n_in = 0, n_curr = 0, n_power = 0;
+	u8 n_temp = 0, n_cool = 0, n_in = 0, n_curr = 0, n_power = 0;
 	MCDI_DECLARE_BUF(inbuf, MC_CMD_SENSOR_INFO_EXT_IN_LEN);
 	MCDI_DECLARE_BUF(outbuf, MC_CMD_SENSOR_INFO_OUT_LENMAX);
 	unsigned int n_pages, n_sensors, n_attrs, page;
@@ -832,8 +832,8 @@ int efx_mcdi_mon_probe(struct efx_nic *efx)
 
 	for (i = 0, j = -1, type = -1; ; i++) {
 		enum hwmon_sensor_types hwmon_type;
-		unsigned int file_index = 0;
 		u16 min1, max1, min2, max2;
+		u8 file_index = 0;
 
 		/* Find next sensor type or exit if there is none */
 		do {

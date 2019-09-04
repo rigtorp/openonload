@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -31,6 +31,7 @@
 #include <onload/fd_private.h>
 #include <onload/tcp_driver.h>
 #include <onload/cplane_driver.h>
+#include <onload/cplane_module_params.h>
 #include <cplane/server.h>
 
 #include "onload_internal.h"
@@ -1531,7 +1532,8 @@ static void cp_respawn_init_server(void)
   cp_spawn_server(CP_SPAWN_SERVER_BOOTSTRAP);
 }
 
-int cplane_server_path_set(const char* val, struct kernel_param* kp)
+int cplane_server_path_set(const char* val,
+                           ONLOAD_MPC_CONST struct kernel_param* kp)
 {
   char* old_path;
   char* new_path = kstrdup(skip_spaces(val), GFP_KERNEL);
@@ -1556,7 +1558,8 @@ int cplane_server_path_set(const char* val, struct kernel_param* kp)
 }
 
 
-int cplane_server_path_get(char* buffer, struct kernel_param* kp)
+int cplane_server_path_get(char* buffer,
+                           ONLOAD_MPC_CONST struct kernel_param* kp)
 {
   char* path;
   int len;
@@ -1725,7 +1728,8 @@ static char* get_next_word(char* str)
   return NULL;
 }
 
-int cplane_server_params_set(const char* val, struct kernel_param* kp)
+int cplane_server_params_set(const char* val,
+                             ONLOAD_MPC_CONST struct kernel_param* kp)
 {
   char** old;
   char** new = NULL;
@@ -1775,7 +1779,8 @@ int cplane_server_params_set(const char* val, struct kernel_param* kp)
   return 0;
 }
 
-int cplane_server_params_get(char* buffer, struct kernel_param* kp)
+int cplane_server_params_get(char* buffer,
+                             ONLOAD_MPC_CONST struct kernel_param* kp)
 {
   char* s;
   size_t add, len;
@@ -1827,7 +1832,8 @@ int oo_cp_get_server_pid(struct oo_cplane_handle* cp)
   return pid;
 }
 
-int cplane_route_request_timeout_set(const char* val, struct kernel_param* kp)
+int cplane_route_request_timeout_set(const char* val,
+                                     ONLOAD_MPC_CONST struct kernel_param* kp)
 {
   int rc = param_set_int(val, kp);
   if( rc != 0 )

@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -18,19 +18,8 @@
 #define __ONLOAD_CPLANE_DRIVER_H__
 
 #include <linux/mm.h>
-#include <linux/moduleparam.h>
 
 #define DEFAULT_CPLANE_SERVER_PATH "/sbin/onload_cp_server"
-
-/* Module parameters */
-extern int cplane_init_timeout;
-extern bool cplane_spawn_server;
-extern char* cplane_server_path;
-extern char* cplane_server_params;
-extern int cplane_server_grace_timeout;
-extern int cplane_route_request_limit;
-extern int cplane_route_request_timeout_ms;
-
 
 struct ci_private_s;
 struct oo_cplane_handle;
@@ -68,12 +57,6 @@ extern int oo_cp_link_rsop(struct ci_private_s*, void* arg);
 extern int oo_cp_ready(struct ci_private_s*, void* version);
 extern int oo_cp_check_version(struct ci_private_s*, void* arg);
 
-extern int cplane_server_path_set(const char* val, struct kernel_param*);
-extern int cplane_server_path_get(char* buffer, struct kernel_param*);
-extern int cplane_server_params_set(const char* val, struct kernel_param*);
-extern int cplane_server_params_get(char* buffer, struct kernel_param*);
-extern int cplane_route_request_timeout_set(const char* val,
-                                            struct kernel_param* kp);
 
 extern int oo_cp_get_server_pid(struct oo_cplane_handle* cp);
 extern int oo_cp_print_rsop(struct ci_private_s *priv, void *arg);

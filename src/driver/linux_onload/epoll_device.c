@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -53,10 +53,20 @@
 /*************************************************************
  * EPOLL2 private file data
  *************************************************************/
-static int set_max_stacks(const char *val, struct kernel_param *kp);
+static int set_max_stacks(const char *val, 
+                          ONLOAD_MPC_CONST struct kernel_param *kp);
 static unsigned epoll_max_stacks = CI_CFG_EPOLL_MAX_STACKS;
+#ifdef EFRM_HAVE_KERNEL_PARAM_OPS
+static const struct kernel_param_ops epoll_max_stacks_ops = {
+  .set = set_max_stacks,
+  .get = param_get_uint,
+};
+module_param_cb(epoll_max_stacks, &epoll_max_stacks_ops, 
+                &epoll_max_stacks, S_IRUGO | S_IWUSR);
+#else
 module_param_call(epoll_max_stacks, set_max_stacks, param_get_uint,
                   &epoll_max_stacks, S_IRUGO);
+#endif
 __MODULE_PARM_TYPE(epoll_max_stacks, "uint");
 MODULE_PARM_DESC(epoll_max_stacks,
 "Maximum number of onload stacks handled by single epoll object.");
@@ -179,7 +189,8 @@ static void oo_epoll_release_common(struct oo_epoll_private* priv)
 /*************************************************************
  * EPOLL2-specific code
  *************************************************************/
-static int set_max_stacks(const char *val, struct kernel_param *kp)
+static int set_max_stacks(const char *val, 
+                          ONLOAD_MPC_CONST struct kernel_param *kp)
 {
   int rc = param_set_uint(val, kp);
   if( rc != 0 )

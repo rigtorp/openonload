@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -201,6 +201,7 @@ static void efx_dequeue_buffer(struct efx_tx_queue *tx_queue,
 	if (buffer->flags & EFX_TX_BUF_SKB) {
 		struct sk_buff *skb = (struct sk_buff *)buffer->skb;
 
+		EFX_WARN_ON_PARANOID(!pkts_compl || !bytes_compl);
 		(*pkts_compl)++;
 		(*bytes_compl) += skb->len;
 
@@ -1047,9 +1048,11 @@ static void efx_enqueue_unwind(struct efx_tx_queue *tx_queue,
 
 	/* Work backwards until we hit the original insert pointer value */
 	while (tx_queue->insert_count != insert_count) {
+		unsigned int pkts_compl = 0, bytes_compl = 0;
+
 		--tx_queue->insert_count;
 		buffer = __efx_tx_queue_get_insert_buffer(tx_queue);
-		efx_dequeue_buffer(tx_queue, buffer, NULL, NULL);
+		efx_dequeue_buffer(tx_queue, buffer, &pkts_compl, &bytes_compl);
 	}
 }
 

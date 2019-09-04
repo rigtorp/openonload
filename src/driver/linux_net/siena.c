@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -367,8 +367,7 @@ static int siena_map_reset_flags(u32 *flags)
 static void siena_monitor(struct efx_nic *efx)
 {
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_EEH_DEV_CHECK_FAILURE)
-	struct eeh_dev *eehdev =
-		of_node_to_eeh_dev(pci_device_to_OF_node(efx->pci_dev));
+	struct eeh_dev *eehdev = pci_dev_to_eeh_dev(efx->pci_dev);
 
 	eeh_dev_check_failure(eehdev);
 #else
@@ -1219,6 +1218,9 @@ static int siena_mtd_probe_partition(struct efx_nic *efx,
 	part->mtd.flags = MTD_CAP_NORFLASH;
 	part->mtd.size = size;
 	part->mtd.erasesize = erase_size;
+	if (!erase_size)
+		part->mtd.flags |= MTD_NO_ERASE;
+
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_USE_MTD_WRITESIZE)
 	part->mtd.writesize = write_size;
 #else

@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -914,16 +914,17 @@ efx_get_channel_name(struct efx_channel *channel, char *buf, size_t len)
 	int number;
 
 	number = channel->channel;
-	if (efx->tx_channel_offset == 0) {
+
+	if (efx->xdp_channel_offset && number >= efx->xdp_channel_offset) {
+		type = "-xdp";
+		number -= efx->xdp_channel_offset;
+	} else if (efx->tx_channel_offset == 0) {
 		type = "";
-	} else if (channel->channel < efx->tx_channel_offset) {
+	} else if (number < efx->tx_channel_offset) {
 		type = "-rx";
-	} else if (channel->channel < efx->xdp_channel_offset) {
+	} else {
 		type = "-tx";
 		number -= efx->tx_channel_offset;
-	} else {
-		type = "-xdp";
-		number -= efx->tx_channel_offset + efx->xdp_channel_offset;
 	}
 	snprintf(buf, len, "%s%s-%d", efx->name, type, number);
 }
@@ -1420,6 +1421,9 @@ void efx_link_status_changed(struct efx_nic *efx)
 	}
 
 	/* Status message for kernel log */
+	if (!net_ratelimit())
+		return;
+
 	if (link_state->up) {
 		netif_info(efx, link, efx->net_dev,
 			   "link up at %uMbps %s-duplex (MTU %d)%s%s%s\n",
@@ -4033,7 +4037,8 @@ int efx_change_mtu(struct net_device *net_dev, int new_mtu)
 	rc = efx_check_disabled(efx);
 	if (rc)
 		return rc;
-#if defined(EFX_USE_KCOMPAT) && !defined(EFX_HAVE_NETDEV_MTU_LIMITS)
+
+#if defined(EFX_USE_KCOMPAT) && !(defined(EFX_HAVE_NETDEV_MTU_LIMITS) || defined(EFX_HAVE_NETDEV_EXT_MTU_LIMITS))
 	if (new_mtu > EFX_MAX_MTU) {
 		netif_err(efx, drv, efx->net_dev,
 			  "Requested MTU of %d too big (max: %d)\n",
@@ -4504,7 +4509,7 @@ static int efx_xdp_setup_prog(struct efx_nic *efx, struct bpf_prog *prog)
 }
 
 /* Context: process, rtnl_lock() held. */
-static int efx_xdp(struct net_device *dev, struct netdev_xdp *xdp)
+static int efx_xdp(struct net_device *dev, struct netdev_bpf *xdp)
 {
 	struct efx_nic *efx = netdev_priv(dev);
 
@@ -4728,8 +4733,10 @@ static int efx_register_netdev(struct efx_nic *efx)
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_NETDEV_MTU_LIMITS)
 	net_dev->min_mtu = EFX_MIN_MTU;
 	net_dev->max_mtu = EFX_MAX_MTU;
+#elif defined(EFX_HAVE_NETDEV_EXT_MTU_LIMITS)
+	net_dev->extended->min_mtu = EFX_MIN_MTU;
+	net_dev->extended->max_mtu = EFX_MAX_MTU;
 #endif
-
 
 #if defined(EFX_USE_KCOMPAT) && defined(EFX_HAVE_NDO_EXT_BUSY_POLL)
 #ifdef CONFIG_NET_RX_BUSY_POLL
@@ -5090,8 +5097,7 @@ int efx_try_recovery(struct efx_nic *efx)
 	 * Manually call the eeh failure check function.
 	 */
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_EEH_DEV_CHECK_FAILURE)
-	struct eeh_dev *eehdev =
-		of_node_to_eeh_dev(pci_device_to_OF_node(efx->pci_dev));
+	struct eeh_dev *eehdev = pci_dev_to_eeh_dev(efx->pci_dev);
 
 	if (eeh_dev_check_failure(eehdev)) {
 #else
@@ -6469,7 +6475,11 @@ const struct net_device_ops efx_netdev_ops = {
 #endif
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_do_ioctl		= efx_ioctl,
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_HAVE_NDO_EXT_CHANGE_MTU)
+	.extended.ndo_change_mtu = efx_change_mtu,
+#else
 	.ndo_change_mtu		= efx_change_mtu,
+#endif
 	.ndo_set_mac_address	= efx_set_mac_address,
 #if !defined(EFX_USE_KCOMPAT) || !defined(EFX_HAVE_NDO_SET_MULTICAST_LIST)
 	.ndo_set_rx_mode	= efx_set_rx_mode, /* Lookout */
@@ -6547,8 +6557,10 @@ const struct net_device_ops efx_netdev_ops = {
 	.ndo_del_geneve_port	= efx_geneve_del_port,
 #endif
 #endif
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
-	.ndo_xdp		= efx_xdp,
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_HAVE_XDP_EXT)
+	.extended.ndo_bpf	= efx_xdp,
+#elif !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+	.ndo_bpf		= efx_xdp,
 #endif
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP_REDIR)
 	.ndo_xdp_xmit		= efx_xdp_xmit,

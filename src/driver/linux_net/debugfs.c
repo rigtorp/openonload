@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2017  Solarflare Communications Inc.
+** Copyright 2005-2018  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -772,13 +772,14 @@ static int efx_nic_debugfs_read_desc(struct seq_file *file, void *data)
 {
 	struct efx_nic *efx = data;
 	const char *rev_name;
+	uint8_t revision;
 
 	switch (efx_nic_rev(efx)) {
 	case EFX_REV_SIENA_A0:
-		rev_name = "Siena rev A0";
+		rev_name = "Siena";
 		break;
 	case EFX_REV_HUNT_A0:
-		rev_name = "Huntington rev A0";
+		rev_name = "Huntington";
 		break;
 	default:
 		WARN_ON(1);
@@ -786,7 +787,9 @@ static int efx_nic_debugfs_read_desc(struct seq_file *file, void *data)
 		break;
 	}
 
-	seq_printf(file, "%s %s board\n", rev_name, efx->phy_name);
+	pci_read_config_byte(efx->pci_dev, PCI_REVISION_ID, &revision);
+	seq_printf(file, "%s %s (rev A%d) board\n", rev_name, efx->phy_name,
+		   revision);
 	return 0;
 }
 
