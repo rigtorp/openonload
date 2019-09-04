@@ -40,7 +40,6 @@
 #include <onload/version.h>
 #include <onload/oof_interface.h>
 #include <onload/cplane_driver.h>
-#include <onload/cplane_module_params.h>
 #include <ci/tools.h>
 #ifdef ONLOAD_OFE
 #include "ofe/onload.h"
@@ -124,8 +123,7 @@ MODULE_PARM_DESC(oof_all_ports_required,
  * STANDARD_PARAM_DEF macros, but modified to add in the extra translation
  * between user namespaces.
  */
-static int param_gid_set(const char* val,
-                         ONLOAD_MPC_CONST struct kernel_param* kp)
+static int param_gid_set(const char* val, struct kernel_param* kp)
 {
   long gid_ns;
   kgid_t gid_k;
@@ -158,8 +156,7 @@ static int param_gid_set(const char* val,
   return rc;
 }
 
-static int param_gid_get(char* buffer,
-                         ONLOAD_MPC_CONST struct kernel_param* kp)
+static int param_gid_get(char* buffer, struct kernel_param* kp)
 {
   int gid_ns;
   int stored_gid = *((int*)kp->arg);
@@ -189,20 +186,8 @@ static int param_gid_get(char* buffer,
 
 int phys_mode_gid = -2;
 #ifdef EFRM_DO_USER_NS
-
-/* module_param_cb() available from Linux 2.6.36 onwards */
-#ifdef EFRM_HAVE_KERNEL_PARAM_OPS
-static const struct kernel_param_ops phys_mode_gid_ops = {
-  .set = param_gid_set,
-  .get = param_gid_get,
-};
-module_param_cb(phys_mode_gid, &phys_mode_gid_ops, 
-                &phys_mode_gid, S_IRUGO | S_IWUSR);
-#else
 module_param_call(phys_mode_gid, param_gid_set, param_gid_get,
                   &phys_mode_gid, S_IRUGO | S_IWUSR);
-#endif
-
 #else
 module_param(phys_mode_gid, int, S_IRUGO | S_IWUSR);
 #endif
@@ -222,18 +207,8 @@ MODULE_PARM_DESC(safe_signals_and_exit,
 
 int scalable_filter_gid = -2;
 #ifdef EFRM_DO_USER_NS
-#ifdef EFRM_HAVE_KERNEL_PARAM_OPS
-static const struct kernel_param_ops scalable_filter_gid_ops = {
-  .set = param_gid_set,
-  .get = param_gid_get,
-};
-module_param_cb(scalable_filter_gid, &scalable_filter_gid_ops, 
-                &scalable_filter_gid, S_IRUGO | S_IWUSR);
-
-#else
 module_param_call(scalable_filter_gid, param_gid_set, param_gid_get,
                   &scalable_filter_gid, S_IRUGO | S_IWUSR);
-#endif
 #else
 module_param(scalable_filter_gid, int, S_IRUGO | S_IWUSR);
 #endif
@@ -263,34 +238,15 @@ MODULE_PARM_DESC(cplane_spawn_server,
                  "in a network namespace in which there are no other stacks.");
 
 char* cplane_server_path = NULL;
-
-#ifdef EFRM_HAVE_KERNEL_PARAM_OPS
-static const struct kernel_param_ops cplane_server_path_ops = {
-  .set = cplane_server_path_set,
-  .get = cplane_server_path_get,
-};
-module_param_cb(cplane_server_path, &cplane_server_path_ops, 
-                NULL, S_IRUGO | S_IWUSR);
-#else
 module_param_call(cplane_server_path, cplane_server_path_set,
                   cplane_server_path_get, NULL, S_IRUGO | S_IWUSR);
-#endif
 MODULE_PARM_DESC(cplane_server_path,
                  "Sets the path to the onload_cp_server binary.  Defaults to "
                  DEFAULT_CPLANE_SERVER_PATH" if empty.");
 
 char* cplane_server_params = NULL;
-#ifdef EFRM_HAVE_KERNEL_PARAM_OPS
-static const struct kernel_param_ops cplane_server_params_ops = {
-  .set = cplane_server_params_set,
-  .get = cplane_server_params_get,
-};
-module_param_cb(cplane_server_params, &cplane_server_params_ops, 
-                NULL, S_IRUGO | S_IWUSR);
-#else
 module_param_call(cplane_server_params, cplane_server_params_set,
                   cplane_server_params_get, NULL, S_IRUGO | S_IWUSR);
-#endif
 MODULE_PARM_DESC(cplane_server_params,
                  "Set additional parameters for the onload_cp_server "
                  "server when it is spawned on-demand.");
@@ -306,21 +262,10 @@ module_param(cplane_route_request_limit, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(cplane_route_request_limit,
                  "Queue depth limit for route resolution requests.");
 
-
-#ifdef EFRM_HAVE_KERNEL_PARAM_OPS
-static const struct kernel_param_ops cplane_route_request_timeout_ms_ops = {
-  .set = cplane_route_request_timeout_set,
-  .get = param_get_int,
-};
-module_param_cb(cplane_route_request_timeout_ms, 
-                &cplane_route_request_timeout_ms_ops, 
-                &cplane_route_request_timeout_ms, S_IRUGO | S_IWUSR);
-#else
 module_param_call(cplane_route_request_timeout_ms,
                   cplane_route_request_timeout_set,
                   param_get_int, &cplane_route_request_timeout_ms,
                   S_IRUGO | S_IWUSR);
-#endif
 MODULE_PARM_DESC(cplane_route_request_timeout_ms,
                  "Time out value for route resolution requests.");
 

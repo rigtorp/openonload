@@ -337,7 +337,7 @@ static int efx_mcdi_proxy_do_configure_none(struct sk_buff *skb, struct genl_inf
 	rc = efx_proxy_auth_stop(efx, false);
 	if (rc == 0)
 		efx_mcdi_proxy_daemon_pid = 0;
-
+out:
 	dev_put(dev);
 	return rc;
 }

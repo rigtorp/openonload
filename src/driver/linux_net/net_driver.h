@@ -55,9 +55,7 @@
 #ifndef EFX_USE_KCOMPAT
 #include <net/busy_poll.h>
 #endif
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP_RXQ_INFO)
-#include <net/xdp.h>
-#endif
+
 
 #ifdef EFX_NOT_UPSTREAM
 #include "config.h"
@@ -88,7 +86,7 @@
  *
  **************************************************************************/
 
-#define EFX_DRIVER_VERSION	"4.12.2.1014"
+#define EFX_DRIVER_VERSION	"4.12.2.1006"
 
 #ifdef DEBUG
 #define EFX_WARN_ON_ONCE_PARANOID(x) WARN_ON_ONCE(x)
@@ -490,10 +488,10 @@ struct efx_rx_page_state {
 /**
  * struct efx_rx_queue - An Efx RX queue
  * @efx: The associated Efx NIC
- * @buffer: The software buffer ring
- * @rxd: The hardware descriptor ring
  * @core_index: Index of network core RX queue.  Will be >= 0 iff this
  *	is associated with a real RX queue.
+ * @buffer: The software buffer ring
+ * @rxd: The hardware descriptor ring
  * @ptr_mask: The size of the ring minus 1.
  * @refill_enabled: Enable refill whenever fill level is low
  * @flush_pending: Set when a RX flush is pending. Has the same lifetime as
@@ -520,13 +518,12 @@ struct efx_rx_page_state {
  *	refill was triggered.
  * @recycle_count: RX buffer recycle counter.
  * @slow_fill: Timer used to defer efx_nic_generate_fill_event().
- * @xdp_rxq_info: XDP specific RX queue information.
  */
 struct efx_rx_queue {
 	struct efx_nic *efx;
+	int core_index;
 	struct efx_rx_buffer *buffer;
 	struct efx_special_buffer rxd;
-	int core_index;
 	unsigned int ptr_mask;
 	bool refill_enabled;
 	bool flush_pending;
@@ -555,20 +552,13 @@ struct efx_rx_queue {
 	unsigned int failed_flush_count;
 	/* Statistics to supplement MAC stats */
 	unsigned long rx_packets;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,2,0) && !(defined(RHEL_MAJOR) && RHEL_MAJOR >= 7)
+
 #define SKB_CACHE_SIZE 8
-#else
-#define SKB_CACHE_SIZE 0
-#endif
 	struct sk_buff *skb_cache[SKB_CACHE_SIZE];
 	unsigned int skb_cache_next_unused;
 
 #ifdef CONFIG_SFC_DEBUGFS
 	struct dentry *debug_dir;
-#endif
-
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP_RXQ_INFO)
-	struct xdp_rxq_info xdp_rxq_info;
 #endif
 };
 

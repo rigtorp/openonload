@@ -1,11 +1,3 @@
-openonload-201710-u1.1
-----------------------
-
-Update sfc net driver to v4.12.2.1014
-
-Add support for recent Linux kernels (up to 4.16) and those using CONFIG_RETPOLINE
-
-
 openonload-201710-u1
 --------------------
 

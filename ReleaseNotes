@@ -1,28 +1,3 @@
-OpenOnload-201710-u1.1
-======================
-
-This is a minor update release that adds support for recent kernels
-(up to v4.16) to allow use of Onload with kernels that have
-CONFIG_RETPOLINE enabled.
-
-It also supports enterprise distribution kernels that have backported
-and enabled CONFIG_RETPOLINE.
-
-This package is supported on:
- - Red Hat Enterprise Linux 6.7 - 6.9
- - Red Hat Enterprise Linux 7.2 - 7.5*
- - SuSE Linux Enterprise Server 11 sp4
- - SuSE Linux Enterprise Server 12 sp2, sp3
- - Canonical Ubuntu Server LTS 14.04, 16.04
- - Canonical Ubuntu Server 17.10
- - Debian 8 "Jessie"
- - Debian 9 "Stretch"
- - Linux kernels 3.0 - 4.16
-
-* At time of writing RHEL 7.5 is in beta but we don't expect any
-relevant changes before it is released as GA.
-
-
 OpenOnload-201710-u1
 ====================
 

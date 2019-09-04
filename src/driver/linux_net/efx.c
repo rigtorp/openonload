@@ -5097,7 +5097,8 @@ int efx_try_recovery(struct efx_nic *efx)
 	 * Manually call the eeh failure check function.
 	 */
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_EEH_DEV_CHECK_FAILURE)
-	struct eeh_dev *eehdev = pci_dev_to_eeh_dev(efx->pci_dev);
+	struct eeh_dev *eehdev =
+		of_node_to_eeh_dev(pci_device_to_OF_node(efx->pci_dev));
 
 	if (eeh_dev_check_failure(eehdev)) {
 #else
@@ -6557,9 +6558,7 @@ const struct net_device_ops efx_netdev_ops = {
 	.ndo_del_geneve_port	= efx_geneve_del_port,
 #endif
 #endif
-#if defined(EFX_USE_KCOMPAT) && defined(EFX_HAVE_XDP_EXT)
-	.extended.ndo_bpf	= efx_xdp,
-#elif !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
 	.ndo_bpf		= efx_xdp,
 #endif
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP_REDIR)

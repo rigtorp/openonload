@@ -157,19 +157,9 @@ EFRM_GUP_RCLONG_NOTASK_COMBINEDFLAGS symtype get_user_pages include/linux/mm.h l
 EFRM_HAVE_USERMODEHELPER_SETUP		symbol	call_usermodehelper_setup	include/linux/kmod.h
 EFRM_HAVE_USERMODEHELPER_SETUP_INFO	symtype	call_usermodehelper_setup	include/linux/kmod.h	struct subprocess_info*(char *path, char **argv, char **envp, gfp_t gfp_mask, int (*init)(struct subprocess_info *info, struct cred *new), void (*cleanup)(struct subprocess_info *), void *data)
 
-EFRM_HAVE_NS_SYSCTL_TCP_MEM		nsymbol sysctl_tcp_wmem include/net/tcp.h
-
-EFRM_HAVE_CONST_KERNEL_PARAM            symtype param_get_int include/linux/moduleparam.h int(char *, const struct kernel_param *)
-EFRM_HAVE_KERNEL_PARAM_OPS		symbol kernel_param_ops	include/linux/moduleparam.h
-
-EFRM_HAVE_TIMER_SETUP                   symbol timer_setup include/linux/timer.h
-EFRM_HAVE_TIMER_CALLBACK_TIMERLIST      memtype struct_timer_list function include/linux/timer.h void (*)(struct timer_list*)
-
-
 # TODO move onload-related stuff from net kernel_compat
 " | egrep -v -e '^#' -e '^$' | sed 's/[ \t][ \t]*/:/g'
 }
-
 
 ######################################################################
 # Generic methods for standard symbol types

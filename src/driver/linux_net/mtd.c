@@ -57,10 +57,8 @@ static int efx_mtd_erase(struct mtd_info *mtd, struct erase_info *erase)
 	int rc;
 
 	rc = efx->type->mtd_erase(mtd, erase->addr, erase->len);
-#if defined(EFX_USE_KCOMPAT) && defined(MTD_ERASE_DONE)
 	erase->state = rc ? MTD_ERASE_FAILED : MTD_ERASE_DONE;
 	mtd_erase_callback(erase);
-#endif
 	return rc;
 }
 

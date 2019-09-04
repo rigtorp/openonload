@@ -2839,9 +2839,4 @@ static inline void page_frag_free(void *p)
 #endif
 #endif
 
-#ifdef EFX_NEED_PCI_DEV_TO_EEH_DEV
-#define pci_dev_to_eeh_dev(pci_dev) \
-	of_node_to_eeh_dev(pci_device_to_OF_node((pci_dev)))
-#endif
-
 #endif /* EFX_KERNEL_COMPAT_H */

@@ -772,14 +772,13 @@ static int efx_nic_debugfs_read_desc(struct seq_file *file, void *data)
 {
 	struct efx_nic *efx = data;
 	const char *rev_name;
-	uint8_t revision;
 
 	switch (efx_nic_rev(efx)) {
 	case EFX_REV_SIENA_A0:
-		rev_name = "Siena";
+		rev_name = "Siena rev A0";
 		break;
 	case EFX_REV_HUNT_A0:
-		rev_name = "Huntington";
+		rev_name = "Huntington rev A0";
 		break;
 	default:
 		WARN_ON(1);
@@ -787,9 +786,7 @@ static int efx_nic_debugfs_read_desc(struct seq_file *file, void *data)
 		break;
 	}
 
-	pci_read_config_byte(efx->pci_dev, PCI_REVISION_ID, &revision);
-	seq_printf(file, "%s %s (rev A%d) board\n", rev_name, efx->phy_name,
-		   revision);
+	seq_printf(file, "%s %s board\n", rev_name, efx->phy_name);
 	return 0;
 }
 

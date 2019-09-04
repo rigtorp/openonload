@@ -1,6 +1,6 @@
 Solarflare 4.X Linux network driver
 ===================================
-Version:  4.12.2.1014
+Version:  4.12.2.1006
 
 
 Overview
@@ -76,7 +76,7 @@ kernel
 Installation of the driver can be confirmed by typing:
    modinfo sfc | grep version
 and checking for the line:
-   version: 4.12.2.1014
+   version: 4.12.2.1006
 
 All network interfaces available on the system can be found with:
   ifconfig -a
@@ -100,23 +100,26 @@ Linux distribution support for Solarflare Adapters
 --------------------------------------------------
 
 This driver package is supported on:
- - RedHat Enterprise Linux              6.7, 6.8, 6.9
- - RedHat Enterprise Linux              7.3, 7.4, 7.5beta
-   - RedHat Enterprise Linux for Realtime   7.3, 7.4
- - SuSE Linux Enterprise Server 11                sp4
-   - SuSE Linux Enterprise RealTime Extension 11  sp4
- - SuSE Linux Enterprise Server 12                sp3
- - Canonical Ubuntu Server LTS                    14.04.5, 16.04.x
- - Debian 8 "Jessie"                              8.10
- - Debian 9 "Stretch"                             9.4
- - Kernel.org linux kernels                       3.0 to 4.16-rc1
+ - RedHat Enterprise Linux		          6.7, 6.8, 6.9
+   - Redhat Messaging Realtime and Grid           2.5
+ - RedHat Enterprise Linux		          7.2, 7.3, 7.4
+   - RedHat Enterprise Linux for Realtime	  7.2, 7.3
+ - SuSE Linux Enterprise Server 11                sp3, sp4
+   - SuSE Linux Enterprise RealTime Extension 11  
+ - SuSE Linux Enterprise Server 12                sp2, sp3
+ - Canonical Ubuntu Server LTS                    14.04, 16.04
+ - Canonical Ubuntu Server                        -
+ - Debian 7 "Wheezy"                              7.X
+ - Debian 8 "Jessie"                              8.X
+ - Debian 9 "Stretch"                             9.X
+ - Linux                                          2.6.18 to 4.14
 
 
 This driver has been tested as a VF driver using KVM / ESXi 5.5 and ESXi 6.0
 hypervisors on the following guest OSes:
- - RedHat Enterprise Linux              5.11
- - RedHat Enterprise Linux              6.5, 6.6, 6.7
- - RedHat Enterprise Linux              7.0, 7.1, 7.2
+ - RedHat Enterprise Linux		          5.11
+ - RedHat Enterprise Linux		          6.5, 6.6, 6.7
+ - RedHat Enterprise Linux 		          7.0, 7.1, 7.2
  - SuSE Linux Enterprise Server 11                sp4
  - SuSE Linux Enterprise Server 12                base release
 
@@ -338,24 +341,6 @@ Issue 50868:
 Changelog
 ---------
 
-### v4.12.2.1014 -- update release for OpenOnload-201710
-[General changes]
- ~ Kernel compatibility for upstream 4.15, 4.16-rc5 and RHEL 7.5.
-
- ~ Increase the number of multicast filters used before reverting to the
-   'multicast all' filter. In response to customer feedback the maximum number
-   of multicast filters inserted has been increased from 256 to 512. Above
-   that the individual filters will still be replaced with a 'multicast all'
-   filter.
-
-SF-119883-KI / Issue 78131:
- ~ A race condition in the MCDI (driver<=>adapter communication) state machine
-   could result in stack data being accessed from a different thread after it
-   had gone out of scope. This would result in invalid addresses being read or
-   a hard lockup, both with efx_mcdi_rpc_completer and __wake_up in the call
-   stack. A similar race (not observed in use) was identified and fixed in the
-   PTP/MCDI interaction.
-
 ### v4.12.2.1006 -- update release for OpenOnload-201710
 [General changes]
  ~ GCC 7.2 introduces additional warnings related to potential string
@@ -363,6 +348,7 @@ SF-119883-KI / Issue 78131:
    since the actual possible numerical range is small; however, the format
    string checking isn't aware of the actual numerical range. Format strings
    have been updated and types changed to prevent warnings.
+
  ~ Kernel compatibility for upstream 4.14, 4.15-rc6.
 
 Issue 74885:
@@ -2117,5 +2103,5 @@ Issue 19951
 
 Copyright
 ---------
-Copyright 2009-2018 Solarflare Communications Inc.  All rights reserved.
+Copyright 2009-2017 Solarflare Communications Inc.  All rights reserved.
 Use is subject to license terms.

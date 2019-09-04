@@ -38,9 +38,6 @@
 #ifdef EFX_NOT_UPSTREAM
 #include <net/ipv6.h>
 #endif
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP_RXQ_INFO)
-#include <net/xdp.h>
-#endif
 #include "net_driver.h"
 #include "efx.h"
 #include "filter.h"
@@ -181,10 +178,8 @@ static void efx_refill_skb_cache(struct efx_rx_queue *rx_queue)
 
 static void efx_refill_skb_cache_check(struct efx_rx_queue *rx_queue)
 {
-#if SKB_CACHE_SIZE > 0
 	if (rx_queue->skb_cache_next_unused == SKB_CACHE_SIZE)
 		efx_refill_skb_cache(rx_queue);
-#endif
 }
 
 static void efx_fini_skb_cache(struct efx_rx_queue *rx_queue)
@@ -773,13 +768,6 @@ efx_rx_packet_gro(struct efx_channel *channel, struct efx_rx_buffer *rx_buf,
 
 	efx_rx_skb_attach_timestamp(channel, skb,
 				    eh - efx->type->rx_prefix_size);
-#if IS_ENABLED(CONFIG_VLAN_8021Q)
-#if !defined(EFX_USE_KCOMPAT) || !defined(EFX_HAVE_VLAN_RX_PATH)
-	if (head_buf->flags & EFX_RX_BUF_VLAN_XTAG)
-		__vlan_hwaccel_put_tag(napi->skb, htons(ETH_P_8021Q),
-				       head_buf->vlan_tci);
-#endif
-#endif
 
 #ifdef CONFIG_SFC_TRACING
 	trace_sfc_receive(skb, true, head_buf->flags & EFX_RX_BUF_VLAN_XTAG,
@@ -792,10 +780,13 @@ efx_rx_packet_gro(struct efx_channel *channel, struct efx_rx_buffer *rx_buf,
 					    head_buf->vlan_tci);
 	else
 		/* fall through */
+#else
+	if (head_buf->flags & EFX_RX_BUF_VLAN_XTAG)
+		__vlan_hwaccel_put_tag(napi->skb, htons(ETH_P_8021Q),
+				       head_buf->vlan_tci);
 #endif
 #endif
-		gro_result = napi_gro_frags(napi);
-
+	gro_result = napi_gro_frags(napi);
 	if (gro_result != GRO_DROP)
 		channel->irq_mod_score += 2;
 }
@@ -815,19 +806,15 @@ static struct sk_buff *efx_rx_mk_skb(struct efx_channel *channel,
 {
 	struct efx_rx_buffer *rx_buf = *_rx_buf;
 	struct efx_nic *efx = channel->efx;
+	struct efx_rx_queue *rx_queue = efx_channel_get_rx_queue(channel);
 	struct sk_buff *skb = NULL;
 
 	/* Allocate an SKB to store the headers */
-#if SKB_CACHE_SIZE > 0
-	struct efx_rx_queue *rx_queue = efx_channel_get_rx_queue(channel);
-
 	if (hdr_len <= rx_cb_size &&
 	    likely(rx_queue->skb_cache_next_unused < SKB_CACHE_SIZE)) {
 		skb = rx_queue->skb_cache[rx_queue->skb_cache_next_unused++];
 	}
-	if (unlikely(!skb))
-#endif
-	{
+	if (unlikely(!skb)) {
 		skb = netdev_alloc_skb(efx->net_dev,
 				       efx->rx_ip_align + efx->rx_prefix_size +
 				       hdr_len);
@@ -1093,9 +1080,6 @@ static bool efx_do_xdp(struct efx_nic *efx, struct efx_channel *channel,
 	xdp.data_hard_start = xdp.data - XDP_PACKET_HEADROOM;
 #endif
 	xdp.data_end = xdp.data + rx_buf->len;
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP_RXQ_INFO)
-	xdp.rxq = &rx_queue->xdp_rxq_info;
-#endif
 
 	xdp_act = bpf_prog_run_xdp(xdp_prog, &xdp);
 	rcu_read_unlock();
@@ -1307,7 +1291,6 @@ int efx_probe_rx_queue(struct efx_rx_queue *rx_queue)
 	return rc;
 }
 
-
 #if !defined(EFX_NOT_UPSTREAM) || defined(EFX_RX_PAGE_SHARE)
 void efx_init_rx_recycle_ring(struct efx_nic *efx,
 			      struct efx_rx_queue *rx_queue)
@@ -1329,7 +1312,6 @@ int efx_init_rx_queue(struct efx_rx_queue *rx_queue)
 {
 	struct efx_nic *efx = rx_queue->efx;
 	unsigned int max_fill, trigger, max_trigger;
-	int rc;
 
 	netif_dbg(rx_queue->efx, drv, rx_queue->efx->net_dev,
 		  "initialising RX queue %d\n", efx_rx_queue_index(rx_queue));
@@ -1375,23 +1357,8 @@ int efx_init_rx_queue(struct efx_rx_queue *rx_queue)
 	 */
 	efx_refill_skb_cache(rx_queue);
 
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP_RXQ_INFO)
-	/* Initialise XDP queue information */
-	rc = xdp_rxq_info_reg(&rx_queue->xdp_rxq_info, efx->net_dev,
-			      rx_queue->core_index);
-	if (rc)
-		return rc;
-#endif
-
 	/* Set up RX descriptor ring */
-	rc = efx_nic_init_rx(rx_queue);
-	if (rc) {
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP_RXQ_INFO)
-		xdp_rxq_info_unreg(&rx_queue->xdp_rxq_info);
-#endif
-	}
-
-	return rc;
+	return efx_nic_init_rx(rx_queue);
 }
 
 void efx_fini_rx_queue(struct efx_rx_queue *rx_queue)
@@ -1439,10 +1406,6 @@ void efx_fini_rx_queue(struct efx_rx_queue *rx_queue)
 	}
 	kfree(rx_queue->page_ring);
 	rx_queue->page_ring = NULL;
-#endif
-
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP_RXQ_INFO)
-	xdp_rxq_info_unreg(&rx_queue->xdp_rxq_info);
 #endif
 }
 
@@ -1747,13 +1710,6 @@ static void efx_ssr_deliver(struct efx_ssr_state *st, struct efx_ssr_conn *c)
 		memcpy(c_th + 1, c->th_last + 1, optlen);
 	}
 
-#if IS_ENABLED(CONFIG_VLAN_8021Q)
-#ifndef EFX_HAVE_VLAN_RX_PATH
-	if (EFX_SSR_CONN_IS_VLAN_ENCAP(c))
-		__vlan_hwaccel_put_tag(c->skb, htons(ETH_P_8021Q),
-				       EFX_SSR_CONN_VLAN_TCI(c));
-#endif
-#endif
 
 #ifdef CONFIG_SFC_TRACING
 	trace_sfc_receive(c->skb, false, EFX_SSR_CONN_IS_VLAN_ENCAP(c),
@@ -1765,7 +1721,11 @@ static void efx_ssr_deliver(struct efx_ssr_state *st, struct efx_ssr_conn *c)
 		vlan_hwaccel_receive_skb(c->skb, st->efx->vlan_group,
 					 EFX_SSR_CONN_VLAN_TCI(c));
 	else
-		/* fall through */
+#else
+	if (EFX_SSR_CONN_IS_VLAN_ENCAP(c))
+		__vlan_hwaccel_put_tag(c->skb, htons(ETH_P_8021Q),
+				       EFX_SSR_CONN_VLAN_TCI(c));
+	/* Fall through to netif_receive_skb() */
 #endif
 #endif
 		netif_receive_skb(c->skb);

@@ -121,7 +121,7 @@ efab_tcp_helper_stack_attach(ci_private_t* priv, void *arg)
   /* Re-read the OS socket buffer size settings.  This ensures we'll use
    * up-to-date values for this new socket.
    */
-  efab_get_os_settings(trs);
+  efab_get_os_settings(&NI_OPTS_TRS(trs));
   op->out_nic_set = trs->netif.nic_set;
   op->out_map_size = trs->mem_mmap_bytes;
   return 0;
@@ -174,7 +174,7 @@ efab_tcp_helper_sock_attach_common(tcp_helper_resource_t* trs,
     /* Re-read the OS socket buffer size settings.  This ensures we'll use
      * up-to-date values for this new socket.
      */
-    efab_get_os_settings(trs);
+    efab_get_os_settings(&NI_OPTS_TRS(trs));
   }
 
   return rc;
