@@ -82,7 +82,7 @@
  *
  **************************************************************************/
 
-#define EFX_DRIVER_VERSION	"4.10.4.1005"
+#define EFX_DRIVER_VERSION	"4.10.7.1001"
 
 #ifdef DEBUG
 #define EFX_BUG_ON_PARANOID(x) BUG_ON(x)
@@ -531,7 +531,6 @@ struct efx_rx_queue {
 	unsigned int ptr_mask;
 	bool refill_enabled;
 	bool flush_pending;
-
 	unsigned int added_count;
 	unsigned int notified_count;
 	unsigned int removed_count;
@@ -715,8 +714,7 @@ struct efx_sarfs_state {
  * @irq_moderation_us: IRQ moderation value (in microseconds)
  * @napi_dev: Net device used with NAPI
  * @napi_str: NAPI control structure
- * @state: state for NAPI vs busy polling
- * @state_lock: lock protecting @state
+ * @xdp_prog: Current XDP programme for this queue.
  * @eventq: Event queue buffer
  * @eventq_mask: Event queue pointer mask
  * @eventq_read_ptr: Event queue read pointer
@@ -737,6 +735,7 @@ struct efx_sarfs_state {
  *	lack of descriptors
  * @n_rx_merge_events: Number of RX merged completion events
  * @n_rx_merge_packets: Number of RX packets completed by merged events
+ * @n_rx_xdp_drops: Count of RX packets dropped due to XDP
  * @rx_pkt_n_frags: Number of fragments in next packet to be delivered by
  *	__efx_rx_packet(), or zero if there is none
  * @rx_pkt_index: Ring index of first buffer for next packet to be delivered
@@ -763,6 +762,9 @@ struct efx_channel {
 	unsigned int irq_moderation_us;
 	struct net_device *napi_dev;
 	struct napi_struct napi_str;
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+	struct bpf_prog __rcu *xdp_prog;
+#endif
 #if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
 #ifdef CONFIG_NET_RX_BUSY_POLL
 	unsigned long busy_poll_state;
@@ -810,6 +812,9 @@ struct efx_channel {
 	unsigned int n_rx_nodesc_trunc;
 	unsigned int n_rx_merge_events;
 	unsigned int n_rx_merge_packets;
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+	unsigned int n_rx_xdp_drops;
+#endif
 
 	unsigned int rx_pkt_n_frags;
 	unsigned int rx_pkt_index;

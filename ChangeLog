@@ -1,3 +1,27 @@
+openonload-201606-u1.3
+----------------------
+
+Update sfc net driver to v4.10.7.1001
+
+Support for recent Linux kernel versions (4.11)
+Support for recent Linux distributions (RHEL 6.9, Debian 9, Ubuntu 17.04)
+
+SF-117344-KI/bug66544: fix MSG_WARM behaviour when called on different socket but same stack as send()
+SF-118285-KI/bug66847: check fget() result in epoll calls to avoid NULL dereference
+SF-117911-KI/bug67477: retain original security context after allocating packet buffers
+SF-117847-KI/bug68310: improve TCP_CORK behaviour when option is removed with fragmented send queue
+SF-117847-KI/bug68640: ensure setting TCP_NODELAY while TCP_CORK in use results in flush of pending packet
+SF-118230-KI/bug68653: avoid crash in onload_iptables
+SF-118033-KI/bug69492: fix leak of syn-recv socket state and state corruption when failing to allocate internal state
+SF-118296-KI/bug69764: fix detection and handling of non-Ethernet interfaces, e.g. IP tunnels.
+SF-118224-KI/bug70468: fix close() trampolining with kernel built with CONFIG_HARDENED_USERCOPY
+SF-118106-KI/bug70825: fix TCP RTT estimation with ONLOAD_MSG_WARM and no TCP timestamp option
+SF-118231-KI/bug71078: avoid possible deadlock between fd handover, setsockopt, and UDP send without bind()
+SF-118229-KI/bug71157: TCPDirect could send 1 byte beyond advertised receiver's window
+SF-118299-KI:bug71526: correctly detect bonding failure for multicast over VLAN-over-bond interface
+bug67748: report error correctly if ONLOAD_MSG_WARM used after connection is broken
+
+
 openonload-201606-u1.2
 ----------------------
 

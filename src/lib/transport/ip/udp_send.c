@@ -452,6 +452,13 @@ static int ci_udp_sendmsg_os_get_binding(citp_socket *ep, ci_fd_t fd,
 
   /* see what the kernel did - we'll do just the same */
   rc = ci_sys_getsockname( os_sock, (struct sockaddr*)&sa, &salen);
+
+  /* Must release the os_sock fd before we can take the stack lock, as the
+   * citp_dup2_lock is held until we do so, and lock ordering does not allow
+   * us to take the stack lock with the dup2 lock held.
+   */
+  ci_rel_os_sock_fd( os_sock );
+
   /* get out if getsockname fails or returns a non INET family
     * or a sockaddr struct that's too darned small */
   if( CI_UNLIKELY( rc || (!rc &&
@@ -461,7 +468,6 @@ static int ci_udp_sendmsg_os_get_binding(citp_socket *ep, ci_fd_t fd,
 		"len:%d - exp %u)",
 		__FUNCTION__, NT_PRI_ARGS(ni,us), rc, errno, sa.sin_family, 
 		salen, (unsigned)sizeof(struct sockaddr_in)));
-    ci_rel_os_sock_fd( os_sock );
     errno = err;
     return ret;
   }
@@ -502,7 +508,6 @@ static int ci_udp_sendmsg_os_get_binding(citp_socket *ep, ci_fd_t fd,
   LOG_UV(ci_log("%s: "NT_FMT"Unbound: first send via OS got L:[%s:%u]",
 		__FUNCTION__, NT_PRI_ARGS(ni,us), 
 		ip_addr_str( udp_laddr_be32(us)), udp_lport_be16(us)));
-  ci_rel_os_sock_fd( os_sock );
   errno = err;
   return ret;
 }

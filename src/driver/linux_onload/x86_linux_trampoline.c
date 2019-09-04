@@ -946,19 +946,19 @@ efab_linux_trampoline_handler_close3232(struct pt_regs *regs)
   }
   user_sp = (unsigned long*)sp(regs);
   user_sp--;
-  if (copy_to_user (user_sp, &ip(regs), 4) != 0)
+  if( put_user(ip(regs), user_sp) != 0 )
     return tramp_close_passthrough(bx(regs));
   user_sp--;
-  if (copy_to_user (user_sp, &cx(regs), 4) != 0)
+  if( put_user(cx(regs), user_sp) != 0 )
     return tramp_close_passthrough(bx(regs));
   user_sp--;
-  if (copy_to_user (user_sp, &dx(regs), 4) != 0)
+  if( put_user(dx(regs), user_sp) != 0 )
     return tramp_close_passthrough(bx(regs));
   user_sp--;
-  if( put_user(bx(regs), user_sp) != 0)
+  if( put_user(bx(regs), user_sp) != 0 )
     return tramp_close_passthrough(bx(regs));
   user_sp--;
-  if( put_user(CI_TRAMP_OPCODE_CLOSE, user_sp) != 0)
+  if( put_user(CI_TRAMP_OPCODE_CLOSE, user_sp) != 0 )
     return tramp_close_passthrough(bx(regs));
 
   /* Hack registers so they're restored to state expected by tramp handler */
@@ -1157,15 +1157,15 @@ efab_linux_trampoline_handler_close64(int fd, unsigned long* stack_start)
 
     user_sp--;
     /* Return address */
-    if (copy_to_user (user_sp, &ip(regs), 8) != 0)
+    if( put_user(ip(regs), user_sp) != 0 )
       return tramp_close_passthrough(fd);
     user_sp--;
     /* %rdi will be trashed by opcode */
-    if (copy_to_user (user_sp, &di(regs), 8) != 0)
+    if( put_user(di(regs), user_sp) != 0 )
       return tramp_close_passthrough(fd);
     user_sp--;
     /* %rsi will be trashed by data */
-    if (copy_to_user (user_sp, &si(regs), 8) != 0)
+    if( put_user(si(regs), user_sp) != 0 )
       return tramp_close_passthrough(fd);
 
     /* Write the updated rsp */
@@ -1343,19 +1343,19 @@ efab_linux_trampoline_handler_close32(unsigned long bx, unsigned long cx,
   }
   user32_sp = (unsigned int*)sp(regs);
   user32_sp--;
-  if (copy_to_user (user32_sp, &ip(regs), 4) != 0)
+  if( put_user(ip(regs), user32_sp) != 0 )
     return tramp_close_passthrough(bx);
   user32_sp--;
-  if (copy_to_user (user32_sp, &cx(regs), 4) != 0)
+  if( put_user(cx(regs), user32_sp) != 0 )
     return tramp_close_passthrough(bx);
   user32_sp--;
-  if (copy_to_user (user32_sp, &dx(regs), 4) != 0)
+  if( put_user(dx(regs), user32_sp) != 0)
     return tramp_close_passthrough(bx);
   user32_sp--;
-  if( put_user(bx, user32_sp) != 0)
+  if( put_user(bx, user32_sp) != 0 )
     return tramp_close_passthrough(bx);
   user32_sp--;
-  if( put_user(CI_TRAMP_OPCODE_CLOSE, user32_sp) != 0)
+  if( put_user(CI_TRAMP_OPCODE_CLOSE, user32_sp) != 0 )
     return tramp_close_passthrough(bx);
 
   /* Hack registers so they're restored to state expected by tramp handler */

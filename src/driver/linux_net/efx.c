@@ -78,7 +78,9 @@
 #include "mcdi_proxy.h"
 #endif
 #endif
-
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+#include <linux/bpf.h>
+#endif
 #if defined(EFX_NOT_UPSTREAM) && defined(EFX_GCOV)
 #include "../linux/gcov.h"
 #endif
@@ -645,8 +647,8 @@ static int efx_poll(struct net_device *dev, int *budget_ret)
 		 * since efx_nic_eventq_read_ack() will have no effect if
 		 * interrupts have already been disabled.
 		 */
-		napi_complete(napi);
-		efx_nic_eventq_read_ack(channel);
+		if (napi_complete_done(napi, spent))
+			efx_nic_eventq_read_ack(channel);
 	}
 
 #if defined(EFX_USE_KCOMPAT) && defined(EFX_WANT_DRIVER_BUSY_POLL)
@@ -1025,7 +1027,7 @@ static int efx_start_datapath(struct efx_nic *efx)
 	efx->rx_dma_len = (efx->rx_prefix_size +
 			   EFX_MAX_FRAME_LEN(efx->net_dev->mtu) +
 			   efx->type->rx_buffer_padding);
-	rx_buf_len = (sizeof(struct efx_rx_page_state) +
+	rx_buf_len = (sizeof(struct efx_rx_page_state) + XDP_PACKET_HEADROOM +
 		      efx->rx_ip_align + efx->rx_dma_len);
 	if (rx_buf_len <= PAGE_SIZE) {
 		efx->rx_scatter = efx->type->always_rx_scatter;
@@ -1227,9 +1229,19 @@ static void efx_remove_channel(struct efx_channel *channel)
 {
 	struct efx_tx_queue *tx_queue;
 	struct efx_rx_queue *rx_queue;
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+	struct bpf_prog *xdp_prog;
+#endif
 
 	netif_dbg(channel->efx, drv, channel->efx->net_dev,
 		  "destroy chan %d\n", channel->channel);
+
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+	xdp_prog = rtnl_dereference(channel->xdp_prog);
+	rcu_assign_pointer(channel->xdp_prog, NULL);
+	if (xdp_prog)
+		bpf_prog_put(xdp_prog);
+#endif
 
 	efx_for_each_channel_rx_queue(rx_queue, channel) {
 		efx_remove_rx_queue(rx_queue);
@@ -4089,6 +4101,18 @@ void efx_watchdog(struct net_device *net_dev)
 	efx_schedule_reset(efx, RESET_TYPE_TX_WATCHDOG);
 }
 
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+static unsigned int efx_xdp_max_mtu(struct efx_nic *efx)
+{
+	/* The maximum MTU that we can fit in a single page, allowing for
+	 * framing, overhead and XDP headroom. */
+	int overhead = EFX_MAX_FRAME_LEN(0) + sizeof(struct efx_rx_page_state) +
+		       efx->rx_prefix_size + efx->type->rx_buffer_padding +
+		       efx->rx_ip_align + XDP_PACKET_HEADROOM;
+
+	return PAGE_SIZE - overhead;
+}
+#endif
 
 /* Context: process, rtnl_lock() held. */
 int efx_change_mtu(struct net_device *net_dev, int new_mtu)
@@ -4111,6 +4135,16 @@ int efx_change_mtu(struct net_device *net_dev, int new_mtu)
 		netif_err(efx, drv, efx->net_dev,
 			  "Requested MTU of %d too small (min: %d)\n",
 			  new_mtu, EFX_MIN_MTU);
+		return -EINVAL;
+	}
+#endif
+
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+	if (rtnl_dereference(efx->channel[0]->xdp_prog) &&
+	    (new_mtu > efx_xdp_max_mtu(efx))) {
+		netif_err(efx, drv, efx->net_dev,
+			  "Requested MTU of %d too big for XDP (max: %d)\n",
+			  new_mtu, efx_xdp_max_mtu(efx));
 		return -EINVAL;
 	}
 #endif
@@ -4534,6 +4568,52 @@ void efx_geneve_del_port(struct net_device *dev, sa_family_t sa_family,
 		(void) efx->type->udp_tnl_del_port(efx, tnl);
 }
 #endif
+#endif
+
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+static int efx_xdp_setup_prog(struct efx_nic *efx, struct bpf_prog *prog)
+{
+	struct bpf_prog *old_prog;
+	struct efx_channel *channel;
+
+	if (prog && (efx->net_dev->mtu > efx_xdp_max_mtu(efx))) {
+		netif_err(efx, drv, efx->net_dev,
+			  "Unable to configure XDP with MTU of %d (max: %d)\n",
+			  efx->net_dev->mtu, efx_xdp_max_mtu(efx));
+		return -EINVAL;
+	}
+
+	if (prog) {
+		prog = bpf_prog_add(prog, efx->n_channels);
+		if (IS_ERR(prog))
+			return PTR_ERR(prog);
+	}
+
+	efx_for_each_channel(channel, efx) {
+		old_prog = rtnl_dereference(channel->xdp_prog);
+		rcu_assign_pointer(channel->xdp_prog, prog);
+		if (old_prog)
+			bpf_prog_put(old_prog);
+	}
+
+	return 0;
+}
+
+/* Context: process, rtnl_lock() held. */
+static int efx_xdp(struct net_device *dev, struct netdev_xdp *xdp)
+{
+	struct efx_nic *efx = netdev_priv(dev);
+
+	switch (xdp->command) {
+	case XDP_SETUP_PROG:
+		return efx_xdp_setup_prog(efx, xdp->prog);
+	case XDP_QUERY_PROG:
+		xdp->prog_attached = efx->channel[0]->xdp_prog != NULL;
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
 #endif
 
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_NET_DEVICE_OPS)
@@ -6498,7 +6578,11 @@ const struct net_device_ops efx_netdev_ops = {
 #ifdef CONFIG_SFC_SRIOV
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_NDO_SET_VF_MAC)
 	.ndo_set_vf_mac         = efx_sriov_set_vf_mac,
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_HAVE_NDO_EXT_SET_VF_VLAN_PROTO)
+	.extended.ndo_set_vf_vlan = efx_sriov_set_vf_vlan,
+#else
 	.ndo_set_vf_vlan        = efx_sriov_set_vf_vlan,
+#endif
 	.ndo_get_vf_config      = efx_sriov_get_vf_config,
 #endif
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_VF_LINK_STATE)
@@ -6530,6 +6614,7 @@ const struct net_device_ops efx_netdev_ops = {
 	.ndo_rx_flow_steer	= efx_filter_rfs,
 #endif
 #endif
+
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_NDO_UDP_TUNNEL_ADD)
 	.ndo_udp_tunnel_add	= efx_udp_tunnel_add,
 	.ndo_udp_tunnel_del	= efx_udp_tunnel_del,
@@ -6542,6 +6627,13 @@ const struct net_device_ops efx_netdev_ops = {
 	.ndo_add_geneve_port	= efx_geneve_add_port,
 	.ndo_del_geneve_port	= efx_geneve_del_port,
 #endif
+#endif
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+	.ndo_xdp		= efx_xdp,
+#endif
+
+#if defined(EFX_USE_KCOMPAT) && defined(EFX_HAVE_NET_DEVICE_OPS_EXTENDED)
+	.ndo_size		= sizeof(struct net_device_ops),
 #endif
 };
 #endif

@@ -111,6 +111,7 @@ ci_tcp_listenq_bucket_insert(ci_netif* ni, ci_tcp_socket_listen* tls,
 #ifdef __KERNEL__
   int i = 0;
 #endif
+  oo_p nbucket;
 
   LOG_TV(ci_log("%s([%d] level=%d "TSR_FMT")", __func__,
                 NI_ID(ni), level, TSR_ARGS(tsr)));
@@ -136,10 +137,11 @@ ci_tcp_listenq_bucket_insert(ci_netif* ni, ci_tcp_socket_listen* tls,
   if( level > CI_LISTENQ_BUCKET_MAX_DEPTH(ni) )
     return;
 
-  bucket->bucket[idx] = ci_ni_aux_alloc_bucket(ni);
-  if( OO_P_IS_NULL(bucket->bucket[idx]) )
+  nbucket = ci_ni_aux_alloc_bucket(ni);
+  if( OO_P_IS_NULL(nbucket) )
     return;
-  bucket = ci_ni_aux_p2bucket(ni, bucket->bucket[idx]);
+  bucket->bucket[idx] = nbucket;
+  bucket = ci_ni_aux_p2bucket(ni, nbucket);
   tls->n_buckets++;
 
   while( OO_P_NOT_NULL(tsr_p) ) {

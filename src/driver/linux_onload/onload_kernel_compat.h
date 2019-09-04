@@ -20,6 +20,7 @@
 #include <driver/linux_net/autocompat.h>
 #include <driver/linux_affinity/autocompat.h>
 #include <linux/file.h>
+#include <linux/signal.h>
 
 #ifndef current_fsuid
 #define current_fsuid() current->fsuid

@@ -178,6 +178,7 @@ int efab_tcp_helper_handover(ci_private_t* priv, void *p_fd)
   struct file *oo_file = priv->_filp;
   int rc, line, in_epoll, new_fd;
   citp_waitable_obj* wobj;
+  ci_sock_cmn* sock;
   struct file* os_file;
 
   if( priv->fd_type != CI_PRIV_TYPE_TCP_EP &&
@@ -192,21 +193,16 @@ int efab_tcp_helper_handover(ci_private_t* priv, void *p_fd)
     goto unexpected_error;
   }
 
-  /* get locks */
-  wobj = SP_TO_WAITABLE_OBJ(&priv->thr->netif, priv->sock_id);
-  rc = ci_netif_lock(&priv->thr->netif);
-  if( rc != 0 ) {
-    oo_os_sock_put(os_file);
-    return rc;
-  }
+  /* Caller must have taken the stack lock */
+  ci_assert(ci_netif_is_locked(&priv->thr->netif));
 
+  wobj = SP_TO_WAITABLE_OBJ(&priv->thr->netif, priv->sock_id);
   /* shut down fasync */
   if( ep->fasync_queue )
     fasync_helper(-1, oo_file, 0, &ep->fasync_queue);
 
   citp_waitable_cleanup(&priv->thr->netif, wobj, 0);
   efab_ep_handover_setup(priv, &in_epoll);
-  ci_netif_unlock(&priv->thr->netif);
 
   if( in_epoll ) {
     oo_os_sock_put(os_file);
@@ -217,6 +213,10 @@ int efab_tcp_helper_handover(ci_private_t* priv, void *p_fd)
   oo_os_sock_put(os_file);
   if( rc != 0 )
     return rc;
+
+  /* Remove SO_LINGER flag from the old ep: we want to close it silently */
+  sock = SP_TO_SOCK(&priv->thr->netif, priv->sock_id);
+  sock->s_flags &=~ CI_SOCK_FLAG_LINGER;
 
   *(ci_int32*) p_fd = new_fd;
 

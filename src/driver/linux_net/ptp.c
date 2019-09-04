@@ -290,8 +290,6 @@ struct efx_ptp_data;
  * @s_assert: sys assert time of hw_pps event
  * @n_assert: nic assert time of hw_pps event
  * @s_delta: computed delta between nic and sys clocks
- * @hw_pps_work: work struct for handling hw_pps events
- * @hw_pps_workwq: work queue for handling hw_pps events
  * @nic_hw_pps_enabled: Are hw_pps events enabled
  * @fd_count: Number of open fds
  * @major: device major number
@@ -305,8 +303,6 @@ struct efx_pps_data {
 	struct timespec64 s_assert;
 	ktime_t n_assert;
 	struct timespec64 s_delta;
-	struct work_struct hw_pps_work;
-	struct workqueue_struct *hw_pps_workwq;
 	bool nic_hw_pps_enabled;
 	int fd_count;
 	int major;
@@ -2163,24 +2159,6 @@ int efx_ptp_pps_get_event(struct efx_nic *efx, struct efx_ts_get_pps *event)
 	return 0;
 }
 
-static void efx_ptp_hw_pps_worker(struct work_struct *work)
-{
-	struct efx_pps_data *pps =
-		container_of(work, struct efx_pps_data, hw_pps_work);
-
-	/* Get the sequence number from the packet
-	 * check against the last one, if new then add
-	 * to queue */
-
-	pps->s_assert = timespec64_sub(ktime_to_timespec64(pps->n_assert),
-				       pps->ptp->last_delta);
-	pps->s_delta = pps->ptp->last_delta;
-	pps->last_ev++;
-
-	if (waitqueue_active(&pps->read_data))
-		wake_up(&pps->read_data);
-}
-
 int efx_ptp_hw_pps_enable(struct efx_nic *efx, struct efx_ts_hw_pps *data)
 {
 	struct efx_pps_data *pps_data;
@@ -2274,11 +2252,6 @@ static int efx_ptp_create_pps(struct efx_ptp_data *ptp)
 	if (!pps)
 		return -ENOMEM;
 
-	INIT_WORK(&pps->hw_pps_work, efx_ptp_hw_pps_worker);
-	pps->hw_pps_workwq = create_singlethread_workqueue("sfc_hw_pps");
-	if (!pps->hw_pps_workwq)
-		goto fail1;
-
 	init_waitqueue_head(&pps->read_data);
 	pps->nic_hw_pps_enabled = false;
 
@@ -2286,14 +2259,12 @@ static int efx_ptp_create_pps(struct efx_ptp_data *ptp)
 				 &efx_sysfs_ktype,
 				 &ptp->efx->pci_dev->dev.kobj,
 				 "pps_stats"))
-		goto fail2;
+		goto fail1;
 
 	pps->ptp = ptp;
 	ptp->pps_data = pps;
 
 	return 0;
-fail2:
-	destroy_workqueue(pps->hw_pps_workwq);
 fail1:
 	kfree(pps);
 	ptp->pps_data = NULL;
@@ -2305,13 +2276,6 @@ static void efx_ptp_destroy_pps(struct efx_ptp_data *ptp)
 {
 	if (!ptp->pps_data)
 		return;
-
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_USE_CANCEL_WORK_SYNC)
-	cancel_work_sync(&ptp->pps_data->hw_pps_work);
-	flush_workqueue(ptp->pps_data->hw_pps_workwq);
-#endif
-
-	destroy_workqueue(ptp->pps_data->hw_pps_workwq);
 
 	kobject_del(&ptp->pps_data->kobj);
 
@@ -2345,8 +2309,22 @@ static const struct ptp_clock_info efx_phc_clock_info = {
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_PHC_SUPPORT) || defined(EFX_NOT_UPSTREAM)
 static int efx_create_pps_worker(struct efx_ptp_data *ptp)
 {
+	char busdevice[10];
+
+	snprintf(busdevice, sizeof(busdevice), "%02x:%02x",
+		 ptp->efx->pci_dev->bus->number,
+		 PCI_SLOT(ptp->efx->pci_dev->devfn));
+
 	INIT_WORK(&ptp->pps_work, efx_ptp_pps_worker);
-	ptp->pps_workwq = create_singlethread_workqueue("sfc_pps");
+#if defined(EFX_NOT_UPSTREAM)
+	ptp->pps_workwq = efx_alloc_workqueue("sfc_pps_%s", WQ_UNBOUND |
+					      WQ_MEM_RECLAIM | WQ_SYSFS, 1,
+					      busdevice);
+#else
+	ptp->pps_workwq = alloc_workqueue("sfc_pps_%s", WQ_UNBOUND |
+					  WQ_MEM_RECLAIM | WQ_SYSFS, 1,
+					  busdevice);
+#endif
 	if (!ptp->pps_workwq)
 		return -ENOMEM;
 	return 0;
@@ -3214,8 +3192,16 @@ static void hw_pps_event_pps(struct efx_nic *efx, struct efx_ptp_data *ptp)
 		EFX_QWORD_FIELD(ptp->evt_frags[1], MCDI_EVENT_DATA),
 		ptp->ts_corrections.pps_in);
 
-	if (pps->nic_hw_pps_enabled)
-		queue_work(pps->hw_pps_workwq, &pps->hw_pps_work);
+	if (pps->nic_hw_pps_enabled) {
+		pps->s_assert = timespec64_sub(
+			ktime_to_timespec64(pps->n_assert),
+			pps->ptp->last_delta);
+		pps->s_delta = pps->ptp->last_delta;
+		pps->last_ev++;
+
+		if (waitqueue_active(&pps->read_data))
+			wake_up(&pps->read_data);
+	}
 }
 #endif
 
@@ -3342,7 +3328,7 @@ void __efx_rx_skb_attach_timestamp(struct efx_channel *channel,
 	diff = (pkt_timestamp_minor - channel->sync_timestamp_minor) &
 		(MINOR_TICKS_PER_SECOND - 1);
 	/* do we roll over a second boundary and need to carry the one? */
-	carry = channel->sync_timestamp_minor + diff > MINOR_TICKS_PER_SECOND ?
+	carry = channel->sync_timestamp_minor + diff >= MINOR_TICKS_PER_SECOND ?
 		1 : 0;
 
 	if (diff <= MINOR_TICKS_PER_SECOND / EXPECTED_SYNC_EVENTS_PER_SECOND +

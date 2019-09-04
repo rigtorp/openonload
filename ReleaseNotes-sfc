@@ -1,6 +1,6 @@
 Solarflare 4.X Linux network driver
 ===================================
-Version:  4.10.3.1003
+Version:  4.10.7.1000
 
 
 Overview
@@ -14,7 +14,7 @@ Supported hardware platforms
 The drivers contained in this package support the following Solarflare 
 adapters:
 
-- Solarflare Flareon [Ultra] Server Adapters:
+- Solarflare Server Adapters:
   - Solarflare SFN8522 Dual Port SFP+ Server Adapter
   - Solarflare SFN8542 Dual Port QSFP+ Server Adapter
   - Solarflare SFN7002F Dual Port SFP+ Server Adapter
@@ -49,7 +49,7 @@ adapters:
   - HP Ethernet 10Gb 570FLB Adapter
   - HP Ethernet 10Gb 570M Adapter
   - HP Ethernet 10Gb 572SFP+ Adapter
-  - Lenovo SFN7122F 2x10GbE SFP+ Flareon Ultra Adapter
+  - Lenovo SFN7122F 2x10GbE SFP+ Adapter
 
 
 Building and installation
@@ -73,7 +73,7 @@ kernel
 Installation of the driver can be confirmed by typing:
    modinfo sfc | grep version
 and checking for the line:
-   version: 4.10.0.1012
+   version: 4.10.7.1000
 
 All network interfaces available on the system can be found with:
   ifconfig -a
@@ -97,19 +97,18 @@ Linux distribution support for Solarflare Adapters
 --------------------------------------------------
 
 This driver package is supported on:
- - RedHat Enterprise Linux		          5.10,  5.11
- - RedHat Enterprise Linux		          6.5, 6.6, 6.7, 6.8
+ - RedHat Enterprise Linux		          6.7, 6.8, 6.9
    - Redhat Messaging Realtime and Grid           2.5
- - RedHat Enterprise Linux 		          7.0, 7.1, 7.2
-   - RedHat Enterprise Linux for Realtime	  7.1, 7.2
+ - RedHat Enterprise Linux		          7.2, 7.3, 7.4
+   - RedHat Enterprise Linux for Realtime	  7.2 7.3
  - SuSE Linux Enterprise Server 11                sp3, sp4
    - SuSE Linux Enterprise RealTime Extension 11  
- - SuSE Linux Enterprise Server 12                base release, sp1
+ - SuSE Linux Enterprise Server 12                sp2, sp3
  - Canonical Ubuntu Server LTS                    14.04, 16.04
  - Canonical Ubuntu Server                        -
  - Debian 7 "Wheezy"                              7.X
  - Debian 8 "Jessie"                              8.X
- - Linux                                          2.6.18 to 4.9-rc1
+ - Linux                                          2.6.18 to 4.11
 
 
 This driver has been tested as a VF driver using KVM / ESXi 5.5 and ESXi 6.0
@@ -326,6 +325,45 @@ Issue 50868:
 Changelog
 ---------
 
+### v4.10.7.1000 -- Update release to match EO5 release
+[General changes]
+ ~ Kernel compatibility for RHEL 7.4
+ ~ Change to newer API to avoid the following deprecation warning:
+     hwmon_device_register() is deprecated.
+     Please convert the driver to use hwmon_device_register_with_info().
+ ~ Expose the sfc_pps work queue in sysfs so that CPU affinity can be
+   controlled.
+
+
+### v4.10.6.1002 -- Update release (SF17.1)
+[General changes]:
+ ~ Kernel compatibility extended to Linux 4.11.
+ ~ Adjust to core networking busy polling support available in Linux 4.11.
+
+[XDP preview]
+ ~ Preview of RX side XDP support.
+ ~ This allows for RX filtering to use the DROP target and for RX packet
+   modification (e.g. decapsulation).
+ ~ Additionally header expansion is supported (e.g. encapsulation).
+
+Issue 69569:
+ ~ Fix timestamp being 1s behind if the minor nanosecond timestamp happened to
+   be exactly on 0.
+
+
+### v4.10.4.1005 -- GA release to match openonload-201606-u1.2
+[General changes]
+ ~ Kernel compatability extended to Linux 4.10.
+
+Issue 68158:
+ ~ Fix driver build without PTP support.
+
+Issue 67994:
+ ~ Fix for pps_get_ts() only returning microsecond resolution with RHEL 7.2.
+ ~ (Note this did not affect other RHEL 7.X releases).
+ ~ This would affect the PTP convergence accuracy that is achieved.
+
+
 ### v4.10.4.1000 -- GA release for ESXi adding support for SFN8542 adapters.
 [General VMware ESXi 5.5, 6.0 and 6.5 support]
  ~ GA support for ESXi and SFN8542 Solarflare adapters.
@@ -405,12 +443,14 @@ Support for stateless checksum offloads for NVGRE,VXLAN,GENEVE encapsulation on
 SFN8XXX adapters is still considered a BETA at this time.
 
 [General changes]
- ~ Add support for "ethtool -C stats-block-usecs".
-   Default is 1 sec, but this can be reduced in order to accurately sample every
-   second from a script
  ~ Fail gracefully when PCIe BARs are unassigned (better detection of BIOS
    issues which have been seen after a PCI bus rescan).
  ~ Add support for software TX timestamping.
+
+[SFN8000 series support]
+ ~ Add support for "ethtool -C stats-block-usecs".
+   Default is 1 sec, but this can be reduced in order to accurately sample every
+   second from a script.
 
 [overlays support]
  ~ Add encap TNI to debugfs filter dump.
@@ -580,6 +620,43 @@ Issue 53130
 [Stratus ftServer support]
 Issue 60796:
  ~ Fix efx_mcdi_acquire_sync() returning -ETIMEDOUT on impolite unplug.
+
+
+### v4.7.0.1046 -- Update release for EOL 3
+
+Please note that network interface names may change across this driver update.
+See issue 64065 below.
+
+[General changes]
+ ~ Build fixes for linux 4.10 kernels.
+ ~ Build fixes for RHEL 7.4 kernels.
+ ~ Provide an option to place external network port PHY into power down when the
+   network interface is administratively down. This means the link partner also
+   sees link down. Currently this is controlled via an ethtool private flag:
+    - To enable/disable:
+       ethtool --set-priv-flags DEVNAME phy-power-follows-link (on|off)
+    - To show current state:
+       ethtool --show-priv-flags DEVNAME
+
+[SFN8522 support]
+ ~ Support IPv6 flow-steering in ethtool rxnfc API (still needs support in
+   ethtool)
+ ~ Support encap-over-IPv6 in ethtool n-tuple API (still needs support in
+   ethtool)
+
+Issue 69569:
+ ~ Fix timestamp being 1s behind if the minor nanosecond timestamp happened to
+   be exactly on 0.
+
+Issue 67994:
+ ~ Fix for pps_get_ts() only returning microsecond resolution with RHEL 7.2.
+ ~ (Note this did not affect other RHEL 7.X releases).
+ ~ This would affect the PTP convergence accuracy that is achieved.
+
+Issue 64065:
+ ~ Stop setting dev_port and instead implement get_phys_port_id for PFs. This
+   makes network interface names assigned by systemd more consistent with other
+   network drivers e.g. enp130s0f1d1 becomes enp130s0f1.
 
 
 ### v4.7.0.1035 -- Update release
@@ -1776,5 +1853,5 @@ Issue 19951
 
 Copyright
 ---------
-Copyright 2009-2016 Solarflare Communications Inc.  All rights reserved.
+Copyright 2009-2017 Solarflare Communications Inc.  All rights reserved.
 Use is subject to license terms.

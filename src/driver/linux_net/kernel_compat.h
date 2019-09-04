@@ -2124,6 +2124,26 @@ unsigned int cpumask_local_spread(unsigned int i, int node);
 		} while (0)
 #endif
 
+#ifdef EFX_NEED_WQ_SYSFS
+	#define WQ_SYSFS	0
+#endif
+#ifndef WQ_MEM_RECLAIM
+	#define WQ_MEM_RECLAIM	0
+#endif
+
+#ifdef EFX_HAVE_ALLOC_WORKQUEUE
+#ifndef EFX_HAVE_NEW_ALLOC_WORKQUEUE
+	#define efx_alloc_workqueue(_fmt, _flags, _max, _name)	\
+		alloc_workqueue(_name, _flags, _max)
+#else
+	#define efx_alloc_workqueue(_fmt, _flags, _max, _name)	\
+		alloc_workqueue(_fmt, _flags, _max, _name)
+#endif
+#else
+	#define efx_alloc_workqueue(_fmt, _flags, _max, _name)	\
+		create_singlethread_workqueue(_name)
+#endif
+
 #if defined(EFX_HAVE_OLD_NAPI)
 
 	#ifndef EFX_USE_GRO
@@ -3086,6 +3106,48 @@ static inline void efx_netif_napi_del(struct napi_struct *napi)
  * busy polling in the core.
  */
 #define EFX_WANT_DRIVER_BUSY_POLL
+#endif
+
+#if defined(EFX_NEED_BOOL_NAPI_COMPLETE_DONE)
+#if !defined(EFX_HAVE_OLD_NAPI)
+static inline bool efx_napi_complete_done(struct napi_struct *napi,
+					  int spent __always_unused)
+{
+	napi_complete(napi);
+	return true;
+}
+#define napi_complete_done efx_napi_complete_done
+#else
+/* Old NAPI needs the definition of efx_channel for this to work. Don't drag
+ * net_driver.h for that. */
+bool napi_complete_done(struct napi_struct *napi, int spent);
+#endif
+#endif
+
+#if defined(EFX_NEED_HWMON_DEVICE_REGISTER_WITH_INFO) && !defined(__VMKLNX__)
+struct hwmon_chip_info;
+struct attribute_group;
+
+#ifdef EFX_HAVE_HWMON_CLASS_DEVICE
+#define EFX_HWMON_DEVICE_REGISTER_TYPE class_device
+#else
+#define EFX_HWMON_DEVICE_REGISTER_TYPE device
+#endif
+
+struct EFX_HWMON_DEVICE_REGISTER_TYPE *hwmon_device_register_with_info(
+	struct device *dev,
+	const char *name __always_unused,
+	void *drvdata __always_unused,
+	const struct hwmon_chip_info *info __always_unused,
+	const struct attribute_group **extra_groups __always_unused);
+#endif
+
+#if defined(EFX_HAVE_XDP) && !defined(EFX_HAVE_XDP_TRACE)
+#define trace_xdp_exception(dev, prog, act)
+#endif
+
+#if !defined(EFX_HAVE_XDP_HEAD)
+#define XDP_PACKET_HEADROOM 0
 #endif
 
 #endif /* EFX_KERNEL_COMPAT_H */

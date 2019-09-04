@@ -102,12 +102,12 @@ static void ci_tcp_tx_advance_nagle(ci_netif* ni, ci_tcp_state* ts)
     /* NB. We call advance() before poll() to get best latency. */
     ci_ip_time_resync(IPTIMER_STATE(ni));
     ci_tcp_tx_advance(ts, ni);
-    if(CI_UNLIKELY( ni->flags & CI_NETIF_FLAG_MSG_WARM ))
+    if(CI_UNLIKELY( ts->tcpflags & CI_TCPT_FLAG_MSG_WARM ))
       return;
     goto poll_and_out;
   }
 
-  ci_assert(! (ni->flags & CI_NETIF_FLAG_MSG_WARM));
+  ci_assert(! (ts->tcpflags & CI_TCPT_FLAG_MSG_WARM));
   /* There can't be a SYN, because connection is established, so the SYN
   ** must already be acked.  There can't be a FIN, because if there was
   ** tx_errno would be non zero, and we would not have attempted to
@@ -1745,7 +1745,7 @@ unroll_msg_warm(ci_netif* ni, ci_tcp_state* ts, struct tcp_send_info* sinf,
 {
   ci_ip_pkt_fmt* pkt;
   ++ts->stats.tx_msg_warm;
-  ni->flags &= ~CI_NETIF_FLAG_MSG_WARM;
+  ts->tcpflags &= ~CI_TCPT_FLAG_MSG_WARM;
   ci_ip_queue_init(&ts->send);
   ts->send_in = 0;
   tcp_enq_nxt(ts) -= sinf->fill_list_bytes;
@@ -1753,6 +1753,14 @@ unroll_msg_warm(ci_netif* ni, ci_tcp_state* ts, struct tcp_send_info* sinf,
   ts->burst_window = sinf->old_burst_window;
 #endif
   tcp_snd_nxt(ts) = sinf->old_tcp_snd_nxt;
+
+  /* If we updated our rtt seq based on the warm send then timed_seq will
+   * will be the seq for the warm packet.  If so, clear the timing so
+   * the timed values will be reset when we sent the packet for real.
+   */
+  if( SEQ_EQ(tcp_snd_nxt(ts), ts->timed_seq) )
+    ci_tcp_clear_rtt_timing(ts);
+
   --ts->stats.tx_stop_app;
   CI_TCP_STATS_DEC_OUT_SEGS(ni);
   if( ! is_zc_send ) {
@@ -2160,7 +2168,7 @@ int ci_tcp_sendmsg(ci_netif* ni, ci_tcp_state* ts,
     ++ts->stats.tx_msg_warm_abort;
     if( sinf.stack_locked )
       ci_netif_unlock(ni);
-    return 0;
+    RET_WITH_ERRNO(EPIPE);
   }
 
   if( ci_tcp_sendmsg_notsynchronised(ni, ts, flags, &sinf) == -1 ) {
@@ -2173,7 +2181,7 @@ int ci_tcp_sendmsg(ci_netif* ni, ci_tcp_state* ts,
  slow_path:
   if(CI_UNLIKELY( flags & ONLOAD_MSG_WARM )) {
     if( can_do_msg_warm(ni, ts, &sinf, sinf.total_unsent, flags) ) {
-      ni->flags |= CI_NETIF_FLAG_MSG_WARM;
+      ts->tcpflags |= CI_TCPT_FLAG_MSG_WARM;
 #if CI_CFG_BURST_CONTROL
       sinf.old_burst_window = ts->burst_window;
 #endif
@@ -2264,7 +2272,7 @@ int ci_tcp_zc_send(ci_netif* ni, ci_tcp_state* ts, struct onload_zc_mmsg* msg,
           msg->rc = -EINVAL;
         return 1;
       }
-      ni->flags |= CI_NETIF_FLAG_MSG_WARM;
+      ts->tcpflags |= CI_TCPT_FLAG_MSG_WARM;
 #if CI_CFG_BURST_CONTROL
       sinf.old_burst_window = ts->burst_window;
 #endif
@@ -2433,7 +2441,7 @@ int ci_tcp_zc_send(ci_netif* ni, ci_tcp_state* ts, struct onload_zc_mmsg* msg,
 
 
  bad_buffer:
-  if(CI_UNLIKELY( ni->flags & CI_NETIF_FLAG_MSG_WARM )) {
+  if(CI_UNLIKELY( ts->tcpflags & CI_TCPT_FLAG_MSG_WARM )) {
     ++ts->stats.tx_msg_warm_abort;
     if( sinf.stack_locked )
       ci_netif_unlock(ni);

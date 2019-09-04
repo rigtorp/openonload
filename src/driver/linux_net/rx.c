@@ -53,9 +53,18 @@
 #ifdef CONFIG_SFC_TRACING
 #include <trace/events/sfc.h>
 #endif
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+#include <linux/bpf.h>
+#endif
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP_TRACE)
+#include <trace/events/xdp.h>
+#endif
 
 /* Preferred number of descriptors to fill at once */
 #define EFX_RX_PREFERRED_BATCH 8U
+
+/* Maximum rx prefix used by any architecture. */
+#define EFX_MAX_RX_PREFIX_SIZE 16
 
 #if !defined(EFX_NOT_UPSTREAM) || defined(EFX_RX_PAGE_SHARE)
 /* Number of RX buffers to recycle pages for.  When creating the RX page recycle
@@ -249,6 +258,7 @@ static  void efx_init_rx_buffer(struct efx_rx_queue *rx_queue,
 	dma_addr = state->dma_addr;
 
 	page_offset += sizeof(struct efx_rx_page_state);
+	page_offset += XDP_PACKET_HEADROOM;
 
 	index = rx_queue->added_count & rx_queue->ptr_mask;
 	rx_buf = efx_rx_buffer(rx_queue, index);
@@ -1066,6 +1076,46 @@ static void efx_rx_deliver(struct efx_channel *channel, u8 *eh,
 	netif_receive_skb(skb);
 }
 
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+static u32 efx_do_xdp(struct efx_nic *efx, struct efx_channel *channel,
+		      struct bpf_prog *xdp_prog, u8 *eh, u16 len, s16 *offset)
+{
+	struct xdp_buff xdp;
+	void *orig_data;
+	u32 xdp_act;
+
+	xdp.data = eh;
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP_HEAD)
+	xdp.data_hard_start = xdp.data - XDP_PACKET_HEADROOM;
+#endif
+	xdp.data_end = xdp.data + len;
+	orig_data = xdp.data;
+
+	xdp_act = bpf_prog_run_xdp(xdp_prog, &xdp);
+
+	if (orig_data != xdp.data)
+		*offset = xdp.data - orig_data;
+
+	switch (xdp_act) {
+	case XDP_PASS:
+		return XDP_PASS;
+
+	case XDP_DROP:
+		return XDP_DROP;
+
+	case XDP_TX:
+		WARN_ONCE(1, "XDP TX is not supported\n");
+		return XDP_DROP;
+
+	default:
+		bpf_warn_invalid_xdp_action(xdp_act);
+	case XDP_ABORTED:
+		trace_xdp_exception(efx->net_dev, xdp_prog, xdp_act);
+		return XDP_DROP;
+	}
+}
+#endif
+
 /* Handle a received packet.  Second half: Touches packet payload. */
 void __efx_rx_packet(struct efx_channel *channel)
 {
@@ -1076,6 +1126,9 @@ void __efx_rx_packet(struct efx_channel *channel)
 	struct efx_rx_buffer *rx_buf =
 		efx_rx_buffer(&channel->rx_queue, channel->rx_pkt_index);
 	u8 *eh = efx_rx_buf_va(rx_buf);
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+	struct bpf_prog *xdp_prog;
+#endif
 #if defined(EFX_NOT_UPSTREAM) && defined(EFX_USE_FAKE_VLAN_RX_ACCEL)
 	struct vlan_ethhdr *veh = (struct vlan_ethhdr *) eh;
 #endif
@@ -1109,6 +1162,50 @@ void __efx_rx_packet(struct efx_channel *channel)
 				    channel->rx_pkt_n_frags);
 		goto out;
 	}
+
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP)
+	rcu_read_lock();
+	xdp_prog = rcu_dereference(channel->xdp_prog);
+	if (!xdp_prog) {
+		rcu_read_unlock();
+	} else {
+		u8 rx_prefix[EFX_MAX_RX_PREFIX_SIZE];
+		s16 offset = 0;
+		u32 xdp_act;
+
+		EFX_WARN_ON_PARANOID(efx->rx_prefix_size > EFX_MAX_RX_PREFIX_SIZE);
+
+		dma_sync_single_for_cpu(&efx->pci_dev->dev, rx_buf->dma_addr,
+					rx_buf->len, DMA_FROM_DEVICE);
+
+		/* Save the rx prefix. */
+		memcpy(rx_prefix, eh - efx->rx_prefix_size,
+		       efx->rx_prefix_size);
+
+		xdp_act = efx_do_xdp(efx, channel, xdp_prog, eh, rx_buf->len,
+				     &offset);
+		rcu_read_unlock();
+
+		if (xdp_act == XDP_DROP) {
+			struct efx_rx_queue *rx_queue;
+
+			rx_queue = efx_channel_get_rx_queue(channel);
+			efx_free_rx_buffers(rx_queue, rx_buf,
+					    channel->rx_pkt_n_frags);
+			channel->n_rx_xdp_drops++;
+			goto out;
+		}
+
+		if (offset) {
+			/* Adjust pointers and lengths and restore prefix. */
+			eh += offset;
+			rx_buf->page_offset += offset;
+			rx_buf->len -= offset;
+			memcpy(eh - efx->rx_prefix_size, rx_prefix,
+			       efx->rx_prefix_size);
+		}
+	}
+#endif
 
 #if defined(EFX_NOT_UPSTREAM) && defined(EFX_USE_FAKE_VLAN_RX_ACCEL)
 	/* Fake VLAN tagging */

@@ -88,6 +88,7 @@ static int oo_bufpage_huge_alloc(struct oo_buffer_pages *p, int *flags)
   int rc;
   int restore_creds = 0;
 #ifdef current_cred
+  const struct cred *orig_creds = NULL; /* placate compiler */
   struct cred *creds;
 #endif
 
@@ -102,7 +103,7 @@ static int oo_bufpage_huge_alloc(struct oo_buffer_pages *p, int *flags)
     creds = prepare_creds();
     if( creds != NULL ) {
       creds->cap_effective.cap[0] |= 1 << CAP_IPC_LOCK;
-      commit_creds(creds);
+      orig_creds = override_creds(creds);
       restore_creds = 1;
     }
   }
@@ -216,11 +217,8 @@ fail3:
 out:
   if (restore_creds) {
 #ifdef current_cred
-    creds = prepare_creds();
-    if( creds != NULL ) {
-      creds->cap_effective.cap[0] &= ~(1 << CAP_IPC_LOCK);
-      commit_creds(creds);
-    }
+    ci_assert(orig_creds);
+    revert_creds(orig_creds);
 #elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
     kernel_cap_t eff = current->cap_effective;
     cap2int(eff) &= ~(1 << CAP_IPC_LOCK);

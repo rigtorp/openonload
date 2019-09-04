@@ -48,7 +48,7 @@
  * Need to know the kernel version.
  */
 
-#include <driver/linux_net/autocompat.h>
+#include <driver/linux_affinity/autocompat.h>
 
 #ifndef LINUX_VERSION_CODE
 # include <linux/version.h>
@@ -392,19 +392,12 @@ typedef struct iovec ci_iovec;
 #define CI_IOVEC_LEN(i)  ((i)->iov_len)
 
 /**********************************************************************
- * Signals
- */
-#include <linux/sched.h>
-
-ci_inline void
-ci_send_sig(int signum)
-{
-  send_sig(signum, current, 0);
-}
-
-/**********************************************************************
  * UID
  */
+
+#ifdef EFRM_HAVE_CRED_H
+#include <linux/cred.h>
+#endif
 
 ci_inline uid_t ci_geteuid(void)
 {
@@ -441,10 +434,10 @@ ci_inline uid_t ci_getgid(void)
 }
 
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,14,0)
-#define ci_net_random() net_random()
-#else
+#ifdef EFRM_HAVE_PRANDOM_U32
 #define ci_net_random() prandom_u32()
+#else
+#define ci_net_random() net_random()
 #endif
 
 

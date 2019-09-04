@@ -206,6 +206,9 @@ task_nsproxy_done(struct task_struct *tsk)
   rcu_read_unlock();
 }
 #else
+#ifdef EFRM_HAVE_SCHED_TASK_H
+#include <linux/sched/task.h>
+#endif
 static inline struct nsproxy *
 task_nsproxy_start(struct task_struct *tsk)
 {

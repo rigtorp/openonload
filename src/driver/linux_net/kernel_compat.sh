@@ -129,6 +129,9 @@ EFX_NEED_IPV6_HDR			nsymbol	ipv6_hdr		include/linux/ipv6.h
 EFX_NEED_WORK_API_WRAPPERS		nmember	struct_delayed_work	timer	include/linux/workqueue.h
 EFX_USE_CANCEL_DELAYED_WORK_SYNC	symbol	cancel_delayed_work_sync		include/linux/workqueue.h
 EFX_USE_CANCEL_WORK_SYNC		symbol	cancel_work_sync	include/linux/workqueue.h
+EFX_NEED_WQ_SYSFS			nsymbol	WQ_SYSFS		include/linux/workqueue.h
+EFX_HAVE_ALLOC_WORKQUEUE		symbol	alloc_workqueue		include/linux/workqueue.h
+EFX_HAVE_NEW_ALLOC_WORKQUEUE		custom
 EFX_USE_ETHTOOL_ETH_TP_MDIX		symbol	eth_tp_mdix		include/linux/ethtool.h
 EFX_USE_ETHTOOL_GET_PERM_ADDR		symbol	get_perm_addr		include/linux/ethtool.h
 EFX_USE_ETHTOOL_FLAGS			symbol	get_flags		include/linux/ethtool.h
@@ -197,8 +200,10 @@ EFX_HAVE_SRIOV_CONFIGURE                member  struct_pci_driver       sriov_co
 EFX_HAVE_PCI_DRIVER_RH                  member  struct_pci_driver_rh    sriov_configure        include/linux/pci.h
 EFX_HAVE_PHYSFN                         member  struct_pci_dev          physfn                 include/linux/pci.h
 EFX_HAVE_NET_DEVICE_OPS			symbol	net_device_ops		include/linux/netdevice.h
+EFX_HAVE_NET_DEVICE_OPS_EXTENDED	symbol	net_device_ops_extended	include/linux/netdevice.h
 EFX_HAVE_NDO_SET_VF_MAC 		member	struct_net_device_ops	ndo_set_vf_mac		include/linux/netdevice.h
 EFX_HAVE_NDO_SET_VF_VLAN_PROTO		memtype	struct_net_device_ops	ndo_set_vf_vlan		include/linux/netdevice.h	int (*)(struct net_device *, int, u16, u8, __be16)
+EFX_HAVE_NDO_EXT_SET_VF_VLAN_PROTO		memtype struct_net_device_ops_extended	ndo_set_vf_vlan	include/linux/netdevice.h	int (*)(struct net_device *, int, u16, u8, __be16)
 EFX_HAVE_NDO_SET_VF_SPOOFCHK		member	struct_net_device_ops	ndo_set_vf_spoofchk	include/linux/netdevice.h
 EFX_HAVE_NDO_SET_FEATURES		member	struct_net_device_ops	ndo_set_features	include/linux/netdevice.h
 EFX_HAVE_NDO_FEATURES_CHECK		member	struct_net_device_ops	ndo_features_check	include/linux/netdevice.h
@@ -395,6 +400,10 @@ EFX_HAVE_HW_ENC_FEATURES	member	struct_net_device	hw_enc_features	include/linux/
 EFX_NEED_SKB_INNER_TRANSPORT_OFFSET	nsymbol	skb_inner_transport_offset	include/linux/skbuff.h
 EFX_HAVE_SKB_XMIT_MORE	bitfield	struct_sk_buff	xmit_more	include/linux/skbuff.h
 EFX_HAVE_NDO_ADD_VXLAN_PORT	member	struct_net_device_ops	ndo_add_vxlan_port	include/linux/netdevice.h
+EFX_NEED_PAGE_REF_ADD		nfile				include/linux/page_ref.h
+EFX_NEED_D_HASH_AND_LOOKUP	nexport	d_hash_and_lookup	include/linux/dcache.h fs/dcache.c
+EFX_HAVE_KTIME_UNION		custom
+EFX_NEED_HWMON_DEVICE_REGISTER_WITH_INFO	nsymbol	hwmon_device_register_with_info	include/linux/hwmon.h
 EFX_HAVE_NDO_UDP_TUNNEL_ADD	member	struct_net_device_ops	ndo_udp_tunnel_add	include/linux/netdevice.h
 EFX_NEED_PAGE_REF_ADD		nfile				include/linux/page_ref.h
 EFX_HAVE_NEW_FLOW_KEYS		member	struct_flow_keys	basic		include/net/flow_dissector.h
@@ -403,6 +412,10 @@ EFX_HAVE_NDO_ADD_GENEVE_PORT	member	struct_net_device_ops	ndo_add_geneve_port	in
 EFX_NEED_D_HASH_AND_LOOKUP	nexport	d_hash_and_lookup	include/linux/dcache.h fs/dcache.c
 EFX_HAVE_NETDEV_MTU_LIMITS	member	struct_net_device	max_mtu	include/linux/netdevice.h
 EFX_HAVE_KTIME_UNION		custom
+EFX_NEED_BOOL_NAPI_COMPLETE_DONE	nsymtype	napi_complete_done	include/linux/netdevice.h	bool (struct napi_struct *, int)
+EFX_HAVE_XDP	symbol	netdev_xdp	include/linux/netdevice.h
+EFX_HAVE_XDP_TRACE	file	include/trace/events/xdp.h
+EFX_HAVE_XDP_HEAD	member	struct_xdp_buff	data_hard_start	include/linux/filter.h
 " | egrep -v -e '^#' -e '^$' | sed 's/[ \t][ \t]*/:/g'
 }
 
@@ -1047,6 +1060,32 @@ void f(void)
 	t.tv64 = 0;
 }
 "
+}
+
+function do_EFX_HAVE_KTIME_UNION
+{
+	defer_test_compile pos "
+#include <linux/ktime.h>
+
+void f(void)
+{
+	ktime_t t;
+	t.tv64 = 0;
+}
+"
+}
+
+function do_EFX_HAVE_NEW_ALLOC_WORKQUEUE
+{
+    # The old macro only accepts 3 arguments.
+    defer_test_compile pos '
+#include <linux/workqueue.h>
+
+void f(void)
+{
+	alloc_workqueue("%s", 0, 0, "test");
+}
+'
 }
 
 quiet=false

@@ -1563,6 +1563,7 @@ extern void ci_tcp_timeout_delack(ci_netif* netif, ci_tcp_state* ts) CI_HF;
 extern void ci_tcp_timeout_rto(ci_netif* netif, ci_tcp_state* ts) CI_HF;
 extern void ci_tcp_timeout_cork(ci_netif* netif, ci_tcp_state* ts) CI_HF;
 extern void ci_tcp_stop_timers(ci_netif* netif, ci_tcp_state* ts) CI_HF;
+extern void ci_tcp_send_corked_packets(ci_netif* netif, ci_tcp_state* ts) CI_HF;
 #if CI_CFG_TAIL_DROP_PROBE
 extern void ci_tcp_timeout_taildrop(ci_netif *netif, ci_tcp_state *ts) CI_HF;
 #endif
@@ -4133,7 +4134,7 @@ ci_inline int oo_tcpdump_free_pkts_4write(ci_netif *ni)
 ci_inline void oo_tcpdump_dump_pkt(ci_netif *ni, ci_ip_pkt_fmt *pkt)
 {
   if( !oo_tcpdump_free_pkts_4write(ni) ||
-      (ni->flags & CI_NETIF_FLAG_MSG_WARM) )
+      (pkt->flags & CI_PKT_FLAG_MSG_WARM) )
     return;
 
   ci_assert_equal(ni->state->dump_queue[ni->state->dump_write_i %

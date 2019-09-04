@@ -121,9 +121,17 @@ EFRM_HAVE_SK_SLEEP_FUNC	symtype	sk_sleep	include/net/sock.h wait_queue_head_t *(
 # when using this to check for HAVE_SET_RESTORE_SIGMASK as well as for
 # EFRM_HAVE_SET_RESTORE_SIGMASK.
 EFRM_HAVE_SET_RESTORE_SIGMASK	symbol	set_restore_sigmask	include/linux/sched.h
+EFRM_HAVE_SET_RESTORE_SIGMASK1	symbol	set_restore_sigmask	include/linux/sched/signal.h
 
 EFRM_ALLOC_FILE_TAKES_STRUCT_PATH	symtype	alloc_file	include/linux/file.h struct file *(struct path *, fmode_t, const struct file_operations *)
 EFRM_ALLOC_FILE_TAKES_CONST_STRUCT_PATH	symtype	alloc_file	include/linux/file.h struct file *(const struct path *, fmode_t, const struct file_operations *)
+
+EFRM_HAVE_PRANDOM_U32			symbol  prandom_u32             include/linux/random.h
+
+EFRM_HAVE_NEW_FAULT			memtype struct_vm_operations_struct	fault	include/linux/mm.h	int (*)(struct vm_fault *vmf)
+
+EFRM_HAVE_SCHED_TASK_H			file	include/linux/sched/task.h
+EFRM_HAVE_CRED_H			file	include/linux/cred.h
 
 # TODO move onload-related stuff from net kernel_compat
 " | egrep -v -e '^#' -e '^$' | sed 's/[ \t][ \t]*/:/g'

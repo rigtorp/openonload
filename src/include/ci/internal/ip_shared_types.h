@@ -353,6 +353,7 @@ struct ci_ip_pkt_fmt_s {
 #define CI_PKT_FLAG_NONB_POOL      0x0100  /* allocated from nonb-pool   */
 #define CI_PKT_FLAG_RX             0x0200  /* pkt is on RX path          */
 #define CI_PKT_FLAG_TX_TIMESTAMPED 0x0400  /* pkt with a TX timestamp    */
+#define CI_PKT_FLAG_MSG_WARM       0x0800  /* pkt with a TX timestamp    */
 
 #define CI_PKT_FLAG_TX_MASK_ALLOWED                                     \
     (CI_PKT_FLAG_TX_MORE | CI_PKT_FLAG_TX_PSH | CI_PKT_FLAG_NONB_POOL)
@@ -1970,6 +1971,9 @@ struct ci_tcp_state_s {
 #define CI_TCPT_FLAG_FIN_RECEIVED       0x4000
   /* peer have graciously closed this connection by sending FIN */
 #define CI_TCPT_FLAG_ACTIVE_WILD        0x8000  /* shares active wild */
+
+  /* this socket in in send(MSG_WARM) just now */
+#define CI_TCPT_FLAG_MSG_WARM           0x10000
 
   /* flags advertised on SYN */
 # define CI_TCPT_SYN_FLAGS \

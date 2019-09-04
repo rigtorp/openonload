@@ -317,7 +317,14 @@ static struct page* vm_op_nopage(struct vm_area_struct* vma,
 }
 
 #ifndef EFRM_VMA_HAS_NOPAGE
-static int vm_op_fault(struct vm_area_struct *vma, struct vm_fault *vmf) {
+static int vm_op_fault(
+#ifndef EFRM_HAVE_NEW_FAULT
+                       struct vm_area_struct *vma,
+#endif
+                       struct vm_fault *vmf) {
+#ifdef EFRM_HAVE_NEW_FAULT
+  struct vm_area_struct *vma = vmf->vma;
+#endif
   struct page* page;
 
   page = vm_op_nopage(vma, VM_FAULT_ADDRESS(vmf), NULL);

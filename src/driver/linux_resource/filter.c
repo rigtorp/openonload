@@ -50,6 +50,7 @@
  ****************************************************************************
  */
 #include <linux/device.h>
+#include <linux/ctype.h>
 #include "linux_resource_internal.h"
 #include <driver/linux_net/driverlink_api.h>
 #include "kernel_compat.h"
@@ -194,7 +195,7 @@ static int efrm_hextoi( const char** src, size_t* length )
 	/* This function works much like atoi, but modifies its inputs to make
 	   progress through the data stream. */
 	int rval = 0;
-	while ( length ) {
+	while ( *length ) {
 		char c = **src;
 		if ( c >= '0' && c <= '9' ) {
 			rval *= 16;
@@ -229,11 +230,8 @@ static void efrm_skip_num( const char** src, size_t* length, int num )
 
 static void efrm_skip_whitespace( const char** src, size_t* length )
 {
-	/* Skip past arbitary whitespace */
-	while ( length ) {
-		char c = **src;
-		if ( c != ' ' && c != '\t' && c != '\r' && c != '\0' )
-			break;
+	/* Skip past arbitary whitespace but not '\n' which terminates rules */
+	while ( *length && **src != '\n' && isspace(**src) ) {
 		*src = *src + 1;
 		*length = *length - 1;
 	}
@@ -245,23 +243,23 @@ static int efrm_consume_next_word( const char** src, size_t* length,
 	/* Read non-whitespace until you run out of buffer, or reach
 	   whitespace.*/
 	int rval = 0;
-	
-	if ( !src || !*src || !length || !dest )
+
+	if ( !src || !*src || !length || !*length || !dest )
 		return -EINVAL;
-	
-	while ( length && destlen ) {
-		char c = **src;
-		if ( c == ' ' || c == '\t' || c == '\r'
-		  || c == '\n' || c == '\0' ) {
-			*dest = '\0';
-			break;
-		}
-		*dest++ = c;
+
+  /* Iterate over src buffer copying to dest buffer.  Terminate if
+   *  - there is no more data to copy
+   *  - we are in last entry of dest buffer so it can be '\0' terminated
+   *  - we reach a word separator (space or end of string)
+   */
+	while ( *length && destlen > 1 && !isspace(**src) && **src != '\0' ) {
+		*dest++ = **src;
 		*src = *src + 1;
 		*length = *length - 1;
 		destlen--;
 		rval++;
 	}
+	*dest = '\0';
 	return rval;
 }
 
@@ -271,13 +269,11 @@ static int efrm_compare_and_skip( const char** src, size_t* length,
 	/* Returns strncmp() and moves on if it matches. */
 	size_t compare_length;
 	int mismatch;
-	
 	compare_length = strlen(compare);
-	mismatch = strncmp( *src, compare, compare_length );
 	if ( compare_length > *length ) {
 		return -1;
 	}
-	
+	mismatch = strncmp( *src, compare, compare_length );
 	if ( !mismatch ) {
 		efrm_skip_num( src, length, compare_length );
 	}
@@ -1475,13 +1471,53 @@ static int efrm_text_to_table_entry( const char ** buf, size_t* remain )
 /* /proc/driver/sfc_resource/ */
 /* ************************** */
 
-ssize_t efrm_add_rule(struct file *file, const char __user *buf,
+static int create_kstr_from_ubuf( const char __user *ubuf, size_t size,
+				  const char** out_kstr )
+{
+	/* Creates a buffer in kernel space and copies data into it from
+	 * user space buffer. '\0' terminates the output buffer so it
+	 * can be safely passed into string handling functions. */
+	char* kbuf;
+	int rc;
+	if( out_kstr == NULL ) {
+		EFRM_ERR( "%s: Output buffer pointer is NULL.", __func__ );
+		return -EINVAL;
+	}
+	*out_kstr = NULL;
+	kbuf = kmalloc(size + 1, GFP_KERNEL);
+	if( kbuf == NULL ) {
+		EFRM_ERR( "%s: Failed to allocate kernel buffer.", __func__ );
+		return -ENOMEM;
+	}
+	rc = copy_from_user(kbuf, ubuf, size);
+	if( rc != 0 ) {
+		EFRM_ERR( "%s: Failed to copy %d bytes from user buffer.",
+			__func__, rc );
+		kfree(kbuf);
+		return -EFAULT;
+	}
+	kbuf[size] = '\0';
+	*out_kstr = kbuf;
+	return 0;
+}
+
+
+static ssize_t efrm_add_rule(struct file *file, const char __user *ubuf,
 		      size_t count, loff_t *ppos)
 {
 	/* ENTRYPOINT from firewall_add
 	Interpret the provided buffer, and add the rules therein. */
 	size_t remain = count;
-
+	const char* buf;
+	const char* orig_buf;
+	int rc;
+	rc = create_kstr_from_ubuf( ubuf, count, &orig_buf );
+	if( rc != 0 ) {
+		EFRM_ERR( "%s: Failed to create kernel input string, rc=%d.",
+			__func__, rc );
+		return rc;
+	}
+	buf = orig_buf;
 	mutex_lock( &efrm_ft_mutex );
 
 	while ( *buf != '\0' && remain > 0 ) {
@@ -1490,6 +1526,7 @@ ssize_t efrm_add_rule(struct file *file, const char __user *buf,
 	}
 
 	mutex_unlock( &efrm_ft_mutex );
+	kfree(orig_buf);
 	return count;
 }
 static const struct file_operations efrm_fops_add_rule = {
@@ -1497,29 +1534,38 @@ static const struct file_operations efrm_fops_add_rule = {
 	.write		= efrm_add_rule,
 };
 
-ssize_t efrm_del_rule(struct file *file, const char __user *buf,
-		      size_t count, loff_t *ppos)
+static ssize_t efrm_del_rule(struct file *file, const char __user *ubuf,
+			size_t count, loff_t *ppos)
 {
 	/* ENTRYPOINT from firewall_del.
 	   Interpret the buffer and delete the specified rule(s) */
 	size_t remain = count;
 	char ifname [IFNAMSIZ];
+	const char* orig_buf;
+	const char* buf;
 	int is_all = 0;
 	int interface = 0;
 	int rule_number = -1;
 	int rc = 0;
 
+	rc = create_kstr_from_ubuf(ubuf, count, &orig_buf);
+	if( rc != 0 ) {
+		EFRM_ERR( "%s: Failed to create kernel input string, rc=%d.",
+			__func__, rc );
+		return rc;
+	}
+	buf = orig_buf;
 	efrm_skip_whitespace( &buf, &remain );
 	/* Either if=ethX or ethX supported */
 	efrm_compare_and_skip( &buf, &remain, "if=" );
 	efrm_skip_whitespace( &buf, &remain );
 	interface = efrm_consume_next_word( &buf, &remain, ifname, IFNAMSIZ );
-	
-	if ( interface < 0 ) {
+	if ( interface <= 0 ) {
 		EFRM_ERR( "%s: Failed to understand interface.", __func__ );
+		kfree(orig_buf);
 		return count;
 	}
-	
+
 	/* Either rule= or plain, supported */
 	efrm_skip_whitespace( &buf, &remain );
 	efrm_compare_and_skip( &buf, &remain, "rule=" );
@@ -1548,6 +1594,7 @@ ssize_t efrm_del_rule(struct file *file, const char __user *buf,
 		EFRM_ERR( "%s: Failed to remove rule %d from %s. Code: %d\n",
 		          __func__, rule_number, ifname, rc );
 	}
+	kfree(orig_buf);
 	return count;
 }
 static const struct file_operations efrm_fops_del_rule = {

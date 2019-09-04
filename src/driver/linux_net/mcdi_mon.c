@@ -428,7 +428,9 @@ int efx_mcdi_mon_probe(struct efx_nic *efx)
 		goto fail;
 	}
 
-	hwmon->device = hwmon_device_register(&efx->pci_dev->dev);
+	hwmon->device = hwmon_device_register_with_info(&efx->pci_dev->dev,
+							efx->name, hwmon,
+							NULL, NULL);
 	if (IS_ERR(hwmon->device)) {
 		rc = PTR_ERR(hwmon->device);
 		goto fail;

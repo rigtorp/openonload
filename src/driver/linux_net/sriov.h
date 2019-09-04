@@ -32,7 +32,7 @@
 void efx_sriov_init_max_vfs(struct efx_nic *efx, unsigned int pf_index);
 
 int efx_sriov_set_vf_mac(struct net_device *net_dev, int vf_i, u8 *mac);
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_NDO_SET_VF_VLAN_PROTO)
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_NDO_SET_VF_VLAN_PROTO) || defined(EFX_HAVE_NDO_EXT_SET_VF_VLAN_PROTO)
 int efx_sriov_set_vf_vlan(struct net_device *net_dev, int vf_i, u16 vlan,
 			  u8 qos, __be16 vlan_proto);
 #else

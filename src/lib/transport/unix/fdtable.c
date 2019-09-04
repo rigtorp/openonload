@@ -208,6 +208,7 @@ static void fdtable_swap(unsigned fd, citp_fdinfo_p from,
   if( fdip_cas_fail(p_fdip, from, to) )  goto again;
 }
 
+/* If this is called with OO_IOC_TCP_HANDOVER the stack lock must be held */
 static int fdtable_fd_move(ci_fd_t sock_fd, int op)
 {
   ci_uint32 io_fd = sock_fd;
@@ -804,11 +805,27 @@ citp_fdinfo* citp_fdtable_lookup_noprobe(unsigned fd)
   return NULL;
 }
 
+static ci_netif* fd_to_netif(int fd, int fdt_locked)
+{
+  ci_netif* ni = NULL;
+  ci_ep_info_t info;
+
+  if( oo_ep_info(fd, &info) < 0 ) {
+    Log_V(log("%s: fd=%d unknown", __FUNCTION__, fd));
+  }
+  else {
+    ni = citp_find_ul_netif(info.resource_id, fdt_locked);
+  }
+
+  return ni;
+}
+
 static void citp_fdinfo_do_handover(citp_fdinfo* fdi, int fdt_locked)
 {
   int rc;
   citp_fdinfo* epoll_fdi = NULL;
   int os_fd = fdi->fd;
+  ci_netif* ni;
 #ifndef NDEBUG
   /* Yuk: does for UDP too. */
   volatile citp_fdinfo_p* p_fdip;
@@ -825,7 +842,20 @@ static void citp_fdinfo_do_handover(citp_fdinfo* fdi, int fdt_locked)
       epoll_fdi->protocol->type == CITP_EPOLLB_FD ) {
       citp_epollb_on_handover(epoll_fdi, fdi);
   }
+
+  /* Handover requires stack state modification, but we also need the dup2
+   * lock to avoid the fd we're furtling changing under our feet, and lock
+   * ordering requires the stack lock be taken first.
+   */
+  ni = fd_to_netif(fdi->fd, fdt_locked);
+  /* We should always be able to obtain the netif from our fdi, because if
+   * we're handing something over that implies it's currently in a stack.
+   */
+  ci_assert(ni);
+  ci_netif_lock(ni);
   rc = fdtable_fd_move(fdi->fd, OO_IOC_TCP_HANDOVER);
+  ci_netif_unlock(ni);
+
   if( rc == -EBUSY && fdi->epoll_fd >= 0 ) {
     ci_assert(fdi_to_sock_fdi(fdi)->sock.s->b.sb_aflags &
               CI_SB_AFLAG_MOVED_AWAY);
