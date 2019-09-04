@@ -495,9 +495,6 @@ static struct efx_debugfs_parameter efx_debugfs_tx_queue_parameters[] = {
 #ifdef EFX_NOT_UPSTREAM
 	EFX_U64_PARAMETER(struct efx_tx_queue, tx_bytes),
 	EFX_ULONG_PARAMETER(struct efx_tx_queue, tx_packets),
-#ifdef EFX_USE_SARFS
-	EFX_UINT_PARAMETER(struct efx_tx_queue, sarfs_update),
-#endif
 #endif
 	{NULL},
 };
@@ -591,11 +588,13 @@ static struct efx_debugfs_parameter efx_debugfs_rx_queue_parameters[] = {
 	EFX_UINT_PARAMETER(struct efx_rx_queue, fast_fill_trigger),
 	EFX_UINT_PARAMETER(struct efx_rx_queue, min_fill),
 	EFX_UINT_PARAMETER(struct efx_rx_queue, recycle_count),
+#if !defined(EFX_NOT_UPSTREAM) || defined(EFX_RX_PAGE_SHARE)
 	EFX_UINT_PARAMETER(struct efx_rx_queue, page_add),
 	EFX_UINT_PARAMETER(struct efx_rx_queue, page_recycle_count),
 	EFX_UINT_PARAMETER(struct efx_rx_queue, page_recycle_failed),
 	EFX_UINT_PARAMETER(struct efx_rx_queue, page_recycle_full),
 	EFX_UINT_PARAMETER(struct efx_rx_queue, page_repost_count),
+#endif
 	EFX_UINT_PARAMETER(struct efx_rx_queue, slow_fill_count),
 	{NULL},
 };
@@ -772,13 +771,14 @@ static int efx_nic_debugfs_read_desc(struct seq_file *file, void *data)
 {
 	struct efx_nic *efx = data;
 	const char *rev_name;
+	uint8_t revision;
 
 	switch (efx_nic_rev(efx)) {
 	case EFX_REV_SIENA_A0:
-		rev_name = "Siena rev A0";
+		rev_name = "Siena";
 		break;
 	case EFX_REV_HUNT_A0:
-		rev_name = "Huntington rev A0";
+		rev_name = "Huntington";
 		break;
 	default:
 		WARN_ON(1);
@@ -786,7 +786,9 @@ static int efx_nic_debugfs_read_desc(struct seq_file *file, void *data)
 		break;
 	}
 
-	seq_printf(file, "%s %s board\n", rev_name, efx->phy_name);
+	pci_read_config_byte(efx->pci_dev, PCI_REVISION_ID, &revision);
+	seq_printf(file, "%s %s (rev A%d) board\n", rev_name, efx->phy_name,
+		   revision);
 	return 0;
 }
 

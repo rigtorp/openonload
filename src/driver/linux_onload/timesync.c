@@ -13,6 +13,7 @@
 ** GNU General Public License for more details.
 */
 
+#include <driver/linux_onload/onload_kernel_compat.h>
 
 #include <onload/debug.h>
 #include <onload/tcp_helper_fns.h>
@@ -52,6 +53,12 @@ DECLARE_COMPLETION(cpu_khz_stabilized_completion);
 /* Look at comments above oo_timesync_cpu_khz */
 void oo_timesync_wait_for_cpu_khz_to_stabilize(void)
 {
+  /* There are a technically limited number of completions available, so
+   * don't consume them when it's already known we don't have to wait.
+   */
+  if( signal_cpu_khz_stabilized == 2 )
+    return;
+
   wait_for_completion(&cpu_khz_stabilized_completion);
 }
 
@@ -171,8 +178,13 @@ static void oo_timesync_stabilize_cpu_khz(struct oo_timesync* oo_ts)
   }
 }
 
-
+/* Linux 4.14 changed the argument type for the timer callback
+ * function */
+#ifdef EFRM_HAVE_TIMER_SETUP
+static void stabilize_cpu_khz_timer(struct timer_list *unused)
+#else
 static void stabilize_cpu_khz_timer(unsigned long unused)
+#endif
 {
   oo_timesync_update(efab_tcp_driver.timesync);
   /* If oo_timesync_update called too soon.  Start timer
@@ -209,10 +221,8 @@ int oo_timesync_ctor(struct oo_timesync *oo_ts)
 
   spin_lock_init(&timesync_lock);
 
-  init_timer(&timer_node);
+  timer_setup(&timer_node, stabilize_cpu_khz_timer, 0);
   timer_node.expires = jiffies + 1;
-  timer_node.data = 0;
-  timer_node.function = &stabilize_cpu_khz_timer;
   add_timer(&timer_node);
 
   return 0;

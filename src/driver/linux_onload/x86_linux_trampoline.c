@@ -92,10 +92,12 @@
          preempt_enable();                                    \
        })
 #    if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,34)
-#      define percpu_p(name) (&(per_cpu__ ## name))
+#      define __percpu_p(name) (&(per_cpu__ ## name))
 #    else
-#      define percpu_p(name) (&name)
+#      define __percpu_p(name) (&name)
 #    endif
+     /* Extra layer so that we can pass macros for names. */
+#    define percpu_p(name) __percpu_p(name)
 
 
 #ifdef CONFIG_COMPAT
@@ -186,6 +188,9 @@
  */
 static void **syscall_table = 0;
 
+/* The address of the syscall entry point. */
+static void *oo_entry_SYSCALL_64_addr = NULL;
+
 #ifdef CONFIG_COMPAT
 
 /* The address of the 32-bit compatibility system call table.
@@ -270,32 +275,52 @@ static void **find_syscall_table(void)
 
 #elif defined(__x86_64__)
 
-static void* oo_entry_SYSCALL_64(void)
+static void* oo_entry_sys_call_table(void)
 {
   static void* res = NULL;
-  unsigned long result = 0;
 
   if( res != NULL )
     return res;
-  res = efrm_find_ksym("entry_SYSCALL_64");
-  if( res != NULL )
-    return res;
-
-  /* linux<4.2 does not define entry_SYSCALL_64().  It uses system_call(). */
-  rdmsrl(MSR_LSTAR, result);
-  res = (void*)result;
+#ifdef ERFM_HAVE_NEW_KALLSYMS
+  /* It works with CONFIG_KALLSYMS_ALL=y only. */
+  res = efrm_find_ksym("sys_call_table");
+#endif
   return res;
 }
 
-/* For x86_64, we can find the syscall entry point directly from the LSTAR
- * MSR.  The opcode we need to locate is "call *table(,%rax,8)" which is
- * 0xff,0x14,0xc5,<table> (but note that <table> here is only 4 bytes, not 8).
- */
+static void* oo_entry_SYSCALL_64(void)
+{
+  unsigned long result = 0;
+
+  if( oo_entry_SYSCALL_64_addr != NULL )
+    return oo_entry_SYSCALL_64_addr;
+
+  /* linux<4.2 does not define entry_SYSCALL_64().  It uses system_call(). */
+  rdmsrl(MSR_LSTAR, result);
+  oo_entry_SYSCALL_64_addr = (void*)result;
+  return oo_entry_SYSCALL_64_addr;
+}
+
 static void **find_syscall_table(void)
 {
   unsigned long result = 0;
   unsigned char *p, *pend;
 
+  /* First see if it is in kallsyms */
+  p = oo_entry_sys_call_table();
+  if( p != NULL ) {
+    TRAMP_DEBUG("syscall table ksym at %p", (unsigned long*)p);
+    return (void**)p;
+  }
+
+  /* If kallsyms lookup failed, fall back to looking at some assembly
+   * code that we know references the syscall table.
+   * 
+   * For x86_64, we can find the syscall entry point directly from the
+   * LSTAR MSR.  The opcode we need to locate is 
+   * "call *table(,%rax,8)" which is 0xff,0x14,0xc5,<table> (but note that
+   * <table> here is only 4 bytes, not 8).
+   */
   p = oo_entry_SYSCALL_64();
   if( p == NULL )
     return NULL;
@@ -328,6 +353,13 @@ static void **find_ia32_syscall_table(void)
   unsigned char *pend;
 
 #ifdef ERFM_HAVE_NEW_KALLSYMS
+  /* It works with CONFIG_KALLSYMS_ALL=y only. */
+  /* Linux>=4.2: ia32_sys_call_table is not a local variable any more, so
+   * we can use kallsyms to find it if CONFIG_KALLSYMS_ALL=y. */
+  void *addr;
+  addr = efrm_find_ksym("ia32_sys_call_table");
+  if( addr != NULL )
+    return addr;
 
   /* Linux-4.4 & 4.5: do_syscall_32_irqs_off is a function, so it does not
    * require CONFIG_KALLSYMS_ALL=y. */
@@ -370,21 +402,6 @@ static void **find_ia32_syscall_table(void)
   return NULL;
 }
 #endif
-
-#elif defined(__ia64__)
-
-/* tramplines not used on ia64 */
-
-asmlinkage int efab_linux_trampoline_close(__attribute__((unused)) int unused)
-{
-  TRAMP_DEBUG ("ia64 efab_linux_trampoline_close() called");
-  return 0;
-}
-
-static void **find_syscall_table(void)
-{
-  return NULL;
-}
 
 #else
 #error "Don't know how to find syscall table on this platform"
@@ -605,6 +622,28 @@ asmlinkage int efab_linux_sys_sigaction32(int signum,
 #endif
 
 #if defined(__x86_64__)
+
+#ifdef HAS_CURRENT_TOP_OF_STACK
+   /* current_top_of_stack() reads cpu_tss.x86_tss.sp0, and it is the
+    * pointer we need.  On these kernels, the value is taken before the IRET
+    * frame is pushed onto the stack, so we don't need to look beyond it to
+    * find that frame. */
+#  define OO_KERNEL_STACK_END_OFFSET 0ul
+#  ifdef cpu_current_top_of_stack
+   /* KPTI rework (in linux-4.14) results in this */
+#    define OO_KERNEL_STACK cpu_current_top_of_stack
+#  else
+#    define OO_KERNEL_STACK cpu_tss.x86_tss.sp0
+#  endif
+#else
+  /* On these older kernels, the value of the kernel_stack variable is the
+   * _beginning_ of the IRET frame. */
+#  define OO_KERNEL_STACK_END_OFFSET (unsigned long) \
+     (sizeof(struct pt_regs) - CI_MEMBER_OFFSET(struct pt_regs, ip))
+#  define OO_KERNEL_STACK kernel_stack
+#endif
+
+
 /* Find the storage of the old (UL) stack pointer. */
 ci_inline unsigned long *get_oldrsp_addr(void)
 {
@@ -633,18 +672,7 @@ ci_inline unsigned long *get_oldrsp_addr(void)
     unsigned char *ptr;
 #endif
     unsigned char *p;
-#ifdef HAS_CURRENT_TOP_OF_STACK
-    /* current_top_of_stack() reads cpu_tss.x86_tss.sp0, and it is the
-     * pointer we need. */
-#ifdef cpu_current_top_of_stack
-    /* KPTI rework (in linux-4.14) results in this */
-    unsigned long kernel_stack_p = (unsigned long)percpu_p(cpu_current_top_of_stack);
-#else
-    unsigned long kernel_stack_p = (unsigned long)percpu_p(cpu_tss.x86_tss.sp0);
-#endif
-#else
-    unsigned long kernel_stack_p = (unsigned long)percpu_p(kernel_stack);
-#endif
+    unsigned long kernel_stack_p = (unsigned long) percpu_p(OO_KERNEL_STACK);
     unsigned char *p_end;
 
     p = oo_entry_SYSCALL_64();
@@ -719,12 +747,10 @@ avoid_sysret(void)
   set_thread_flag (TIF_NEED_RESCHED);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0)
 /* There are 2 ways to enter syscall: int80 and vsyscall page.
  * We'll store offsets for 2 different stack layouts. */
 #define TRAMP_PRESAVED_OFF32 2
 static int tramp_offset32[TRAMP_PRESAVED_OFF32] = {0,0};
-#endif
 
 #endif
 
@@ -937,28 +963,11 @@ efab_linux_trampoline_handler_close3232(struct pt_regs *regs)
 
 #else /* x86_64 */
 
-/* The registers are pushed onto the stack by the kernel's handler for the
- * SYSCALL instruction.  However, by the time Onload's syscall hook has been
- * called, we have no guarantees that the stack pointer has not been advanced
- * in some arbitrary way, and indeed on kernels >= 4.6 this can happen.  To
- * account for this, we walk the stack in search of some known register values
- * in expected places.  We begin looking at the location suggested by our asm
- * stub and passed into our C handler, which will be correct on old kernels,
- * and proceed from there if necessary.
- *     We remember up to two offsets at which we have found the registers.
- * This is sufficient at the time of writing.  It might not be in future, but
- * if and when it happens we'd like to know about it, as there's every chance
- * that such a change would break other things, too. */
-#define TRAMP_REGS64_SEARCH_DEPTH 32
-#define TRAMP_PRESAVED_OFF64 2
-static int tramp_offset64[TRAMP_PRESAVED_OFF64] = {-1, -1};
-
-
+#ifndef NDEBUG
 /* Heuristic for deciding whether a struct pt_regs looks valid. */
 static inline int /* bool */
-looks_like_pt_regs64(const unsigned long* stack, unsigned long syscall_num)
+looks_like_pt_regs64(const struct pt_regs* regs, unsigned long syscall_num)
 {
-  const struct pt_regs* regs = (const struct pt_regs*) stack;
   const unsigned long flags_set_bits =
     X86_EFLAGS_IF
 #ifdef X86_EFLAGS_FIXED
@@ -966,15 +975,21 @@ looks_like_pt_regs64(const unsigned long* stack, unsigned long syscall_num)
 #endif
     ;
   const unsigned long flags_clear_bits = X86_EFLAGS_VM;
+  struct vm_area_struct* ip_vma;
+  unsigned vm_flags = 0;
 
-  ci_assert(segment_eq(get_fs(), USER_DS));
+  /* %rip had better point to executable memory. */
+  down_read(&current->mm->mmap_sem);
+  ip_vma = find_vma(current->mm, ip(regs));
+  if( ip_vma != NULL )
+    vm_flags = ip_vma->vm_flags;
+  up_read(&current->mm->mmap_sem);
+  if( ~vm_flags & VM_EXEC )
+    return 0;
 
   return
     /* %rax contains the syscall number. */
     orig_ax(regs) == syscall_num &&
-    /* %rip is inside the task somewhere, which is what access_ok() actually
-     * checks. */
-    access_ok(VERIFY_READ, ip(regs), 1) &&
     /* %rdi contains the fd.  The only ABI guarantee that we have here is that
      * this will be 32-bit. */
     (di(regs) & ~((1ull << 32) - 1)) == 0 &&
@@ -982,65 +997,28 @@ looks_like_pt_regs64(const unsigned long* stack, unsigned long syscall_num)
     (regs->r11 & flags_set_bits) == flags_set_bits &&
     (regs->r11 & flags_clear_bits) == 0;
 }
-
-
-/* Walk the stack to find a struct pt_regs using looks_like_pt_regs64(). */
-static struct pt_regs *
-tramp_stack_find_regs64(unsigned long *stack, unsigned long syscall_num)
-{
-  int i, off;
-
-  /* Is one of our saved offsets good? */
-  for( i = 0; i < TRAMP_PRESAVED_OFF64; ++i ) {
-    if( tramp_offset64[i] < 0 )
-      break;
-    if( looks_like_pt_regs64(stack + tramp_offset64[i], syscall_num) ) {
-      TRAMP_DEBUG("%s: reuse offset[%d] = %d", __func__, i, tramp_offset64[i]);
-      return (struct pt_regs*) (stack + tramp_offset64[i]);
-    }
-  }
-
-  /* Walk the stack for a bit in search of the registers. */
-  for( off = 0; off < TRAMP_REGS64_SEARCH_DEPTH; stack++, off++ ) {
-    if( looks_like_pt_regs64(stack, syscall_num) ) {
-      if( i < TRAMP_PRESAVED_OFF64 ) {
-        tramp_offset64[i] = off;
-        TRAMP_DEBUG("%s: offset[%d] = %d", __func__, i, off);
-      }
-      else {
-        /* More syscall paths exist than we thought.  We'd like to know about
-         * this!  As such, we assert in debug builds, but in release builds we
-         * soldier on, since the address looks valid. */
-        TRAMP_DEBUG("%s: 3rd offset %d", __func__, off);
-        ci_assert(0);
-      }
-      return (struct pt_regs*) stack;
-    }
-  }
-
-  TRAMP_DEBUG("%s: Couldn't find registers on the stack.", __func__);
-  ci_assert(0);
-  return NULL;
-}
+#endif
 
 
 asmlinkage long
-efab_linux_trampoline_handler_close64(int fd, unsigned long* stack_start)
+efab_linux_trampoline_handler_close64(int fd)
 {
   ci_uintptr_t trampoline_entry = 0;
   ci_uintptr_t trampoline_exclude = 0;
   unsigned long *user_sp =0;
   struct pt_regs* regs;
+  char* stack_end = (char*) percpu_read_from_p(percpu_p(OO_KERNEL_STACK)) +
+                    OO_KERNEL_STACK_END_OFFSET;
 
   if( tramp_close_begin(fd, &trampoline_entry, &trampoline_exclude) )
     return tramp_close_passthrough(fd);
 
-  regs = tramp_stack_find_regs64(stack_start, __NR_close);
-  if( regs == NULL ) {
-    TRAMP_DEBUG("%s: Not trampolining: couldn't find registers.", __func__);
-    return tramp_close_passthrough(fd);
-  }
-
+  TRAMP_DEBUG("kernel stack is %p (after adding offset %lu)", stack_end,
+              OO_KERNEL_STACK_END_OFFSET);
+  /* The struct pt_regs should end at the end of the stack.  Move to the start
+   * of the structure. */
+  regs = (struct pt_regs*) stack_end - 1;
+  ci_assert(looks_like_pt_regs64(regs, __NR_close));
 
   /* Let's trampoline! */
   /* There probably isn't any useful verification we can do here...
@@ -1167,14 +1145,21 @@ efab_linux_trampoline_handler_close64(int fd, unsigned long* stack_start)
 
 #ifdef CONFIG_COMPAT
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0)
-/* Find struct pt_regs on the stack using the stack base pointer and
- * 6 known registers. */
+/* Find struct pt_regs on the stack using the stack base pointer and four known
+ * registers.  RHEL 7 backports of CONFIG_RETPOLINE changed the syscall entry
+ * paths.  Now, on these kernels, the struct pt_regs is not always at the
+ * (logical) top of the stack on entry to our trampoline handler.  This is also
+ * true on kernels >= 4.4, regardless of CONFIG_RETPOLINE.
+ *     We used to check the values of EBX and EBP here, but these are not
+ * preserved on the stack in the aforementioned RHEL 7 kernels, so we can't do
+ * it in general.
+ * In practice, all that registers are 0, so we have extremely high
+ * probability of false positives.  We check that CS is correct in hope
+ * that it helps.
+ */
 static inline struct pt_regs *
-tramp_stack_find_regs32(unsigned long bx, unsigned long cx,
-                        unsigned long dx, unsigned long si,
-                        unsigned long di, unsigned long bp,
-                        unsigned long *stack)
+tramp_stack_find_regs32(unsigned long cx, unsigned long dx, unsigned long si,
+                        unsigned long di, unsigned long *stack)
 {
   unsigned long regs4[4] = {cx, dx, si, di};
   int i, off;
@@ -1183,19 +1168,22 @@ tramp_stack_find_regs32(unsigned long bx, unsigned long cx,
   /* Is one of our saved offsets good? */
   for( i = 0; i < TRAMP_PRESAVED_OFF32; i++ ) {
     regs = (void *)(stack + tramp_offset32[i]);
+    /* Zero is a valid offset as well as being the sentinel value for the end
+     * of the remembered offsets, but that's OK: we'll use it in the loop
+     * below. */
     if( tramp_offset32[i] == 0 )
       break;
     if( memcmp(&regs->cx, regs4, 4 * sizeof(regs4[0])) == 0 &&
-        regs->bx == bx && regs->bp == bp ) {
+        regs->cs == __USER32_CS ) {
       TRAMP_DEBUG("%s: reuse offset[%d] = %d", __func__, i, tramp_offset32[i]);
       return regs;
     }
   }
 
-  for( off = 1; off < 20; off++ ) {
+  for( off = 0; off < 20; off++ ) {
     regs = (void *)(stack + off);
     if( memcmp(&regs->cx, regs4, 4 * sizeof(regs4[0])) == 0 &&
-        regs->bx == bx && regs->bp == bp ) {
+        regs->cs == __USER32_CS ) {
       if( i < TRAMP_PRESAVED_OFF32 ) {
         tramp_offset32[i] = off;
         TRAMP_DEBUG("%s: offset[%d] = %d", __func__, i, off);
@@ -1209,7 +1197,6 @@ tramp_stack_find_regs32(unsigned long bx, unsigned long cx,
   return NULL;
 }
 
-#endif
 
 extern asmlinkage int
 efab_linux_trampoline_handler_close32(unsigned long bx, unsigned long cx,
@@ -1228,11 +1215,9 @@ efab_linux_trampoline_handler_close32(unsigned long bx, unsigned long cx,
   /* Let's trampoline! */
   ci_assert (sizeof *user32_sp == 4);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0)
-  regs = tramp_stack_find_regs32(bx, cx, dx, si, di, bp, (void *)regs);
+  regs = tramp_stack_find_regs32(cx, dx, si, di, (void *)regs);
   if( regs == NULL )
     return tramp_close_passthrough(bx);
-#endif
 
   /* It's one of our's.  We would normally have expected to intercept
    * this call from the user-library; trampoling by hacking stack.
@@ -1241,21 +1226,6 @@ efab_linux_trampoline_handler_close32(unsigned long bx, unsigned long cx,
 
   ci_assert (sizeof *user32_sp == 4);
 
-  if (cs(regs) != __USER32_CS) {
-
-    /* We couldn't check this for the 64-bit syscall, but we *can* do this
-     * check here, because we get extra stuff on the stack due to coming from
-     * an interrupt.
-     */
-    ci_log ("Warning: 32-bit trampoline-handler called unexpectedly (%016lx)",
-            cs(regs));
-#ifndef NDEBUG
-    ci_log ("This is a debug-build driver, so I'm going to fail here!");
-    ci_assert (0);
-#endif
-    return tramp_close_passthrough(bx);
-  }
-      
   TRAMP_DEBUG("setup_trampoline32:");
   TRAMP_DEBUG("  r15 %016lx XX",regs->r15);
   TRAMP_DEBUG("  r14 %016lx XX",regs->r14);
@@ -1477,8 +1447,12 @@ int efab_linux_trampoline_ctor(int no_sct)
   } else {
     /* syscall_table wasn't found, so we may have no way to sys_close()... */
     OO_DEBUG_ERR(ci_log("ERROR: syscall table not found"));
-    return 0;
+    return -ENOEXEC;
   }
+
+#ifdef ERFM_HAVE_NEW_KALLSYMS
+  oo_entry_SYSCALL_64_addr = efrm_find_ksym("entry_SYSCALL_64");
+#endif
 
 #ifdef CONFIG_COMPAT
 

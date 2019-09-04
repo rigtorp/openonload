@@ -50,10 +50,8 @@ efab_linux_trampoline_close:
 	.type	efab_linux_trampoline_close,@function
 	.align 16
 efab_linux_trampoline_close:
-	/* 2nd arg to our handler = earliest possible location of
-	 * struct pt_regs. */
-	leaq	RSP_TP_PT_REGS_OFFSET(%rsp),%rsi
-	mov	(%rsp),%rdx     /* 3rd arg is return address */
+	/* The only argument to the C handler is the fd, which is already in
+	 * the correct register. */
 	jmp	efab_linux_trampoline_handler_close64
 .Lfe1:
 	.size	efab_linux_trampoline_close,.Lfe1-efab_linux_trampoline_close
@@ -88,8 +86,6 @@ efab_linux_trampoline_close:
 
 /*  end elif __PPC__ */
 
-#elif defined(__ia64__)
-	/* trampoline unsupported on ia64 */
 #else
 
 #error "Don't know how to build trampolines for this platform"

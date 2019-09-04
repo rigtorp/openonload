@@ -75,7 +75,8 @@ MODULE_PARM_DESC(mcdi_logging_default,
 static int efx_mcdi_rpc_async_internal(struct efx_nic *efx,
 				       struct efx_mcdi_cmd *cmd,
 				       unsigned int *handle,
-				       bool immediate_poll);
+				       bool immediate_poll,
+				       bool immediate_only);
 static void efx_mcdi_start_or_queue(struct efx_mcdi_iface *mcdi,
 				    bool allow_retry,
 				    struct efx_mcdi_copy_buffer *copybuf,
@@ -84,6 +85,11 @@ static void efx_mcdi_cmd_start_or_queue(struct efx_mcdi_iface *mcdi,
 					struct efx_mcdi_cmd *cmd,
 					struct efx_mcdi_copy_buffer *copybuf,
 					struct list_head *cleanup_list);
+static int efx_mcdi_cmd_start_or_queue_ext(struct efx_mcdi_iface *mcdi,
+					   struct efx_mcdi_cmd *cmd,
+					   struct efx_mcdi_copy_buffer *copybuf,
+					   bool immediate_only,
+					   struct list_head *cleanup_list);
 static void efx_mcdi_poll_start(struct efx_mcdi_iface *mcdi,
 				struct efx_mcdi_cmd *cmd,
 				struct efx_mcdi_copy_buffer *copybuf,
@@ -137,6 +143,8 @@ static void efx_mcdi_remove_cmd(struct efx_mcdi_iface *mcdi,
 	if (!cmd->cancelled)
 		_efx_mcdi_remove_cmd(mcdi, cmd, cleanup_list);
 	kref_put(&cmd->ref, efx_mcdi_cmd_release);
+	if (list_empty(&mcdi->cmd_list))
+		wake_up(&mcdi->cmd_complete_wq);
 }
 
 static unsigned long efx_mcdi_rpc_timeout(struct efx_nic *efx, unsigned int cmd)
@@ -218,7 +226,6 @@ fail3:
 	free_page((unsigned long)mcdi->logging_buffer);
 fail2:
 #endif
-fail1:
 	kfree(efx->mcdi);
 	efx->mcdi = NULL;
 fail:
@@ -249,7 +256,7 @@ void efx_mcdi_fini(struct efx_nic *efx)
 	if (!efx->mcdi)
 		return;
 
-	efx_mcdi_flush(efx);
+	efx_mcdi_wait_for_cleanup(efx);
 
 	iface = efx_mcdi(efx);
 #ifdef CONFIG_SFC_MCDI_LOGGING
@@ -299,27 +306,41 @@ static bool efx_mcdi_wait_for_reboot(struct efx_nic *efx)
 	return false;
 }
 
-static bool efx_mcdi_flushed(struct efx_mcdi_iface *mcdi)
+static bool efx_mcdi_flushed(struct efx_mcdi_iface *mcdi, bool ignore_cleanups)
 {
 	bool flushed;
 
 	spin_lock_bh(&mcdi->iface_lock);
 	flushed = list_empty(&mcdi->cmd_list) &&
-		  !mcdi->outstanding_cleanups;
+		  (ignore_cleanups || !mcdi->outstanding_cleanups);
 	spin_unlock_bh(&mcdi->iface_lock);
 	return flushed;
 }
 
 /* Wait for outstanding MCDI commands to complete. */
-void efx_mcdi_flush(struct efx_nic *efx)
+void efx_mcdi_wait_for_cleanup(struct efx_nic *efx)
 {
 	struct efx_mcdi_iface *mcdi = efx_mcdi(efx);
-	bool flushed;
 
-	do {
-		wait_event(mcdi->cmd_complete_wq,
-			   (flushed = efx_mcdi_flushed(mcdi)));
-	} while (!flushed);
+	wait_event(mcdi->cmd_complete_wq,
+		   efx_mcdi_flushed(mcdi, false));
+}
+
+int efx_mcdi_wait_for_quiescence(struct efx_nic *efx,
+				 unsigned int timeout_jiffies)
+{
+	struct efx_mcdi_iface *mcdi = efx_mcdi(efx);
+
+	int rc = wait_event_timeout(mcdi->cmd_complete_wq,
+				    efx_mcdi_flushed(mcdi, true),
+				    timeout_jiffies);
+
+	if (rc > 0)
+		rc = 0;
+	else if (rc == 0)
+		rc = -ETIMEDOUT;
+
+	return rc;
 }
 
 /* Indicate to the MCDI module that we're now sending commands for a new
@@ -329,7 +350,7 @@ void efx_mcdi_post_reset(struct efx_nic *efx)
 {
 	struct efx_mcdi_iface *mcdi = efx_mcdi(efx);
 
-	efx_mcdi_flush(efx);
+	efx_mcdi_wait_for_cleanup(efx);
 
 	mcdi->new_epoch = true;
 }
@@ -423,9 +444,6 @@ static void efx_mcdi_send_request(struct efx_nic *efx,
 	efx->type->mcdi_request(efx, cmd->bufid, hdr, hdr_len, inbuf, inlen);
 
 	mcdi->new_epoch = false;
-
-	if (cmd->starter)
-		cmd->starter(efx, cmd->cookie);
 }
 
 static int efx_mcdi_errno(struct efx_nic *efx, unsigned int mcdi_err)
@@ -671,6 +689,7 @@ efx_mcdi_check_supported(struct efx_nic *efx, unsigned int cmd, size_t inlen)
 }
 
 struct efx_mcdi_blocking_data {
+	struct kref ref;
 	bool done;
 	wait_queue_head_t wq;
 	int rc;
@@ -678,6 +697,11 @@ struct efx_mcdi_blocking_data {
 	size_t outlen;
 	size_t outlen_actual;
 };
+
+static void efx_mcdi_blocking_data_release(struct kref *ref)
+{
+	kfree(container_of(ref, struct efx_mcdi_blocking_data, ref));
+}
 
 static void efx_mcdi_rpc_completer(struct efx_nic *efx, unsigned long cookie,
 				   int rc, efx_dword_t *outbuf,
@@ -690,8 +714,10 @@ static void efx_mcdi_rpc_completer(struct efx_nic *efx, unsigned long cookie,
 	memcpy(wait_data->outbuf, outbuf,
 	       min(outlen_actual, wait_data->outlen));
 	wait_data->outlen_actual = outlen_actual;
+	smp_wmb();
 	wait_data->done = true;
 	wake_up(&wait_data->wq);
+	kref_put(&wait_data->ref, efx_mcdi_blocking_data_release);
 }
 
 static int efx_mcdi_rpc_sync(struct efx_nic *efx, unsigned int cmd,
@@ -699,62 +725,77 @@ static int efx_mcdi_rpc_sync(struct efx_nic *efx, unsigned int cmd,
 			     efx_dword_t *outbuf, size_t outlen,
 			     size_t *outlen_actual, bool quiet)
 {
-	struct efx_mcdi_blocking_data wait_data;
-	struct efx_mcdi_cmd *cmd_item =
-		kmalloc(sizeof(struct efx_mcdi_cmd), GFP_KERNEL);
+	struct efx_mcdi_blocking_data *wait_data;
+	struct efx_mcdi_cmd *cmd_item;
 	unsigned int handle;
 	int rc;
 
 	if (outlen_actual)
 		*outlen_actual = 0;
 
-	if (!cmd_item)
+	wait_data = kmalloc(sizeof(*wait_data), GFP_KERNEL);
+	if (!wait_data)
 		return -ENOMEM;
 
+	cmd_item = kmalloc(sizeof(*cmd_item), GFP_KERNEL);
+	if (!cmd_item) {
+		kfree(wait_data);
+		return -ENOMEM;
+	}
+
+	kref_init(&wait_data->ref);
+	wait_data->done = false;
+	init_waitqueue_head(&wait_data->wq);
+	wait_data->outbuf = outbuf;
+	wait_data->outlen = outlen;
+
 	kref_init(&cmd_item->ref);
-	wait_data.done = false;
-	init_waitqueue_head(&wait_data.wq);
-	wait_data.outbuf = outbuf;
-	wait_data.outlen = outlen;
 	cmd_item->quiet = quiet;
-	cmd_item->cookie = (unsigned long) &wait_data;
-	cmd_item->starter = NULL;
+	cmd_item->cookie = (unsigned long) wait_data;
 	cmd_item->atomic_completer = NULL;
 	cmd_item->completer = &efx_mcdi_rpc_completer;
 	cmd_item->cmd = cmd;
 	cmd_item->inlen = inlen;
 	cmd_item->inbuf = inbuf;
 
-	rc = efx_mcdi_rpc_async_internal(efx, cmd_item, &handle, true);
-	if (rc)
-		return rc;
+	/* Claim an extra reference for the completer to put. */
+	kref_get(&wait_data->ref);
+	rc = efx_mcdi_rpc_async_internal(efx, cmd_item, &handle, true, false);
+	if (rc) {
+		kref_put(&wait_data->ref, efx_mcdi_blocking_data_release);
+		goto out;
+	}
 
-	if (!wait_event_timeout(wait_data.wq, wait_data.done,
+	if (!wait_event_timeout(wait_data->wq, wait_data->done,
 				MCDI_ACQUIRE_TIMEOUT +
 				efx_mcdi_rpc_timeout(efx, cmd)) &&
-	    !wait_data.done) {
+	    !wait_data->done) {
 		netif_err(efx, drv, efx->net_dev,
 			  "MC command 0x%x inlen %zu timed out (sync)\n",
 			  cmd, inlen);
 
 		efx_mcdi_cancel_cmd(efx, handle);
 
-		wait_data.rc = -ETIMEDOUT;
-		wait_data.outlen_actual = 0;
+		wait_data->rc = -ETIMEDOUT;
+		wait_data->outlen_actual = 0;
 	}
 
 	if (outlen_actual)
-		*outlen_actual = wait_data.outlen_actual;
-	return wait_data.rc;
+		*outlen_actual = wait_data->outlen_actual;
+	rc = wait_data->rc;
+
+out:
+	kref_put(&wait_data->ref, efx_mcdi_blocking_data_release);
+
+	return rc;
 }
 
 int efx_mcdi_rpc_async_ext(struct efx_nic *efx, unsigned int cmd,
 			   const efx_dword_t *inbuf, size_t inlen,
-			   efx_mcdi_async_starter *starter,
 			   efx_mcdi_async_completer *atomic_completer,
 			   efx_mcdi_async_completer *completer,
 			   unsigned long cookie, bool quiet,
-			   unsigned int *handle)
+			   bool immediate_only, unsigned int *handle)
 {
 	struct efx_mcdi_cmd *cmd_item =
 		kmalloc(sizeof(struct efx_mcdi_cmd) + inlen, GFP_ATOMIC);
@@ -765,7 +806,6 @@ int efx_mcdi_rpc_async_ext(struct efx_nic *efx, unsigned int cmd,
 	kref_init(&cmd_item->ref);
 	cmd_item->quiet = quiet;
 	cmd_item->cookie = cookie;
-	cmd_item->starter = starter;
 	cmd_item->completer = completer;
 	cmd_item->atomic_completer = atomic_completer;
 	cmd_item->cmd = cmd;
@@ -774,7 +814,8 @@ int efx_mcdi_rpc_async_ext(struct efx_nic *efx, unsigned int cmd,
 	cmd_item->inbuf = (efx_dword_t *) (cmd_item + 1);
 	memcpy(cmd_item + 1, inbuf, inlen);
 
-	return efx_mcdi_rpc_async_internal(efx, cmd_item, handle, false);
+	return efx_mcdi_rpc_async_internal(efx, cmd_item, handle, false,
+					   immediate_only);
 }
 
 static bool efx_mcdi_get_seq(struct efx_mcdi_iface *mcdi, unsigned char *seq)
@@ -789,7 +830,7 @@ static bool efx_mcdi_get_seq(struct efx_mcdi_iface *mcdi, unsigned char *seq)
 static int efx_mcdi_rpc_async_internal(struct efx_nic *efx,
 				       struct efx_mcdi_cmd *cmd,
 				       unsigned int *handle,
-				       bool immediate_poll)
+				       bool immediate_poll, bool immediate_only)
 {
 	struct efx_mcdi_iface *mcdi = efx_mcdi(efx);
 	struct efx_mcdi_copy_buffer *copybuf;
@@ -834,7 +875,12 @@ static int efx_mcdi_rpc_async_internal(struct efx_nic *efx,
 		*handle = efx_mcdi_cmd_handle(cmd);
 
 	list_add_tail(&cmd->list, &mcdi->cmd_list);
-	efx_mcdi_cmd_start_or_queue(mcdi, cmd, copybuf, &cleanup_list);
+	rc = efx_mcdi_cmd_start_or_queue_ext(mcdi, cmd, copybuf, immediate_only,
+					     &cleanup_list);
+	if (rc) {
+		list_del(&cmd->list);
+		kref_put(&cmd->ref, efx_mcdi_cmd_release);
+	}
 
 	spin_unlock_bh(&mcdi->iface_lock);
 
@@ -842,13 +888,14 @@ static int efx_mcdi_rpc_async_internal(struct efx_nic *efx,
 
 	kfree(copybuf);
 
-	return 0;
+	return rc;
 }
 
-static void efx_mcdi_cmd_start_or_queue(struct efx_mcdi_iface *mcdi,
-					struct efx_mcdi_cmd *cmd,
-					struct efx_mcdi_copy_buffer *copybuf,
-					struct list_head *cleanup_list)
+static int efx_mcdi_cmd_start_or_queue_ext(struct efx_mcdi_iface *mcdi,
+					   struct efx_mcdi_cmd *cmd,
+					   struct efx_mcdi_copy_buffer *copybuf,
+					   bool immediate_only,
+					   struct list_head *cleanup_list)
 {
 	struct efx_nic *efx = mcdi->efx;
 	u8 seq, bufid;
@@ -870,9 +917,23 @@ static void efx_mcdi_cmd_start_or_queue(struct efx_mcdi_iface *mcdi,
 			queue_delayed_work(mcdi->workqueue, &cmd->work,
 					   efx_mcdi_rpc_timeout(efx, cmd->cmd));
 		}
+	} else if (immediate_only) {
+		return -EAGAIN;
 	} else {
 		cmd->state = MCDI_STATE_QUEUED;
 	}
+
+	return 0;
+}
+
+static void efx_mcdi_cmd_start_or_queue(struct efx_mcdi_iface *mcdi,
+                                        struct efx_mcdi_cmd *cmd,
+                                        struct efx_mcdi_copy_buffer *copybuf,
+                                        struct list_head *cleanup_list)
+{
+	/* when immediate_only=false this can only return success */
+	(void) efx_mcdi_cmd_start_or_queue_ext(mcdi, cmd, copybuf, false,
+					       cleanup_list);
 }
 
 /* try to advance other commands */
@@ -886,7 +947,8 @@ static void efx_mcdi_start_or_queue(struct efx_mcdi_iface *mcdi,
 	list_for_each_entry_safe(cmd, tmp, &mcdi->cmd_list, list)
 		if (cmd->state == MCDI_STATE_QUEUED ||
 		    (cmd->state == MCDI_STATE_RETRY && allow_retry))
-			efx_mcdi_cmd_start_or_queue(mcdi, cmd, copybuf, cleanup_list);
+			efx_mcdi_cmd_start_or_queue(mcdi, cmd, copybuf,
+						    cleanup_list);
 }
 
 static void efx_mcdi_poll_start(struct efx_mcdi_iface *mcdi,
@@ -898,7 +960,7 @@ static void efx_mcdi_poll_start(struct efx_mcdi_iface *mcdi,
 	 * because generally mcdi responses are fast. After that, back off
 	 * and poll once a jiffy (approximately)
 	 */
-	int spins = copybuf ? TICK_USEC : 0;
+	int spins = copybuf ? USER_TICK_USEC : 0;
 
 	while (spins) {
 		if (efx_mcdi_poll_once(mcdi, cmd)) {
@@ -997,9 +1059,21 @@ static void efx_mcdi_cmd_work(struct work_struct *context)
 		efx_mcdi_proxy_timeout_cmd(mcdi, cmd, &cleanup_list);
 	/* else running, check for completion */
 	} else if (efx_mcdi_poll_once(mcdi, cmd)) {
-		if (!cmd->polled)
-			netif_err(mcdi->efx, drv, mcdi->efx->net_dev,
-				  "MCDI request was completed without an event\n");
+		if (!cmd->polled) {
+			/* check whether the event is pending on EVQ0 */
+			if (efx_nic_mcdi_ev_pending(efx_get_channel(mcdi->efx, 0)))
+				netif_err(mcdi->efx, drv, mcdi->efx->net_dev,
+					  "MC command 0x%x inlen %zu mode %d completed without an interrupt after %u ms\n",
+					  cmd->cmd, cmd->inlen,
+					  cmd->polled ? MCDI_MODE_POLL : MCDI_MODE_EVENTS,
+					  jiffies_to_msecs(jiffies - cmd->started));
+			else
+				netif_err(mcdi->efx, drv, mcdi->efx->net_dev,
+					  "MC command 0x%x inlen %zu mode %d completed without an event after %u ms\n",
+					  cmd->cmd, cmd->inlen,
+					  cmd->polled ? MCDI_MODE_POLL : MCDI_MODE_EVENTS,
+					  jiffies_to_msecs(jiffies - cmd->started));
+		}
 		efx_mcdi_complete_cmd(mcdi, cmd, copybuf, &cleanup_list);
 	/* then check for timeout. If evented, it must have timed out */
 	} else if (!cmd->polled || efx_mcdi_check_timeout(mcdi, cmd)) {
@@ -1309,8 +1383,8 @@ efx_mcdi_rpc_async(struct efx_nic *efx, unsigned int cmd,
 		   const efx_dword_t *inbuf, size_t inlen,
 		   efx_mcdi_async_completer *complete, unsigned long cookie)
 {
-	return efx_mcdi_rpc_async_ext(efx, cmd, inbuf, inlen, NULL, NULL,
-				      complete, cookie, false, NULL);
+	return efx_mcdi_rpc_async_ext(efx, cmd, inbuf, inlen, NULL,
+				      complete, cookie, false, false, NULL);
 }
 
 int efx_mcdi_rpc_async_quiet(struct efx_nic *efx, unsigned int cmd,
@@ -1318,8 +1392,8 @@ int efx_mcdi_rpc_async_quiet(struct efx_nic *efx, unsigned int cmd,
 			     efx_mcdi_async_completer *complete,
 			     unsigned long cookie)
 {
-	return efx_mcdi_rpc_async_ext(efx, cmd, inbuf, inlen, NULL, NULL,
-				      complete, cookie, true, NULL);
+	return efx_mcdi_rpc_async_ext(efx, cmd, inbuf, inlen, NULL,
+				      complete, cookie, true, false, NULL);
 }
 
 static void _efx_mcdi_display_error(struct efx_nic *efx, unsigned int cmd,
@@ -2654,6 +2728,9 @@ int efx_mcdi_mtd_sync(struct mtd_info *mtd)
 void efx_mcdi_mtd_rename(struct efx_mtd_partition *part)
 {
 	struct efx_nic *efx = part->efx;
+
+	if (!efx)
+		return;
 
 	snprintf(part->name, sizeof(part->name), "%s %s:%02x",
 		 efx->name, part->type_name, part->fw_subtype);

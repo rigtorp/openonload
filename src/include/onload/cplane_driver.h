@@ -18,19 +18,8 @@
 #define __ONLOAD_CPLANE_DRIVER_H__
 
 #include <linux/mm.h>
-#include <linux/moduleparam.h>
 
 #define DEFAULT_CPLANE_SERVER_PATH "/sbin/onload_cp_server"
-
-/* Module parameters */
-extern int cplane_init_timeout;
-extern bool cplane_spawn_server;
-extern char* cplane_server_path;
-extern char* cplane_server_params;
-extern int cplane_server_grace_timeout;
-extern int cplane_route_request_limit;
-extern int cplane_route_request_timeout_ms;
-
 
 struct ci_private_s;
 struct oo_cplane_handle;
@@ -68,21 +57,10 @@ extern int oo_cp_link_rsop(struct ci_private_s*, void* arg);
 extern int oo_cp_ready(struct ci_private_s*, void* version);
 extern int oo_cp_check_version(struct ci_private_s*, void* arg);
 
-extern int cplane_server_path_set(const char* val, struct kernel_param*);
-extern int cplane_server_path_get(char* buffer, struct kernel_param*);
-extern int cplane_server_params_set(const char* val, struct kernel_param*);
-extern int cplane_server_params_get(char* buffer, struct kernel_param*);
-extern int cplane_route_request_timeout_set(const char* val,
-                                            struct kernel_param* kp);
 
 extern int oo_cp_get_server_pid(struct oo_cplane_handle* cp);
 extern int oo_cp_print_rsop(struct ci_private_s *priv, void *arg);
 extern int oo_cp_llap_change_notify_all(struct oo_cplane_handle* main_cp);
-extern int oo_cp_oof_sync_start(struct oo_cplane_handle* cp);
-extern int oo_cp_oof_sync_wait(struct oo_cplane_handle* cp);
-extern int cp_sync_tables_start(struct oo_cplane_handle* cp,
-                                cp_version_t* ver_out);
-extern int cp_sync_tables_wait(struct oo_cplane_handle* cp,
-                               cp_version_t old_ver);
+extern int oo_cp_oof_sync(struct oo_cplane_handle* cp);
 
 #endif /* __ONLOAD_CPLANE_DRIVER_H__ */

@@ -134,7 +134,7 @@ endif # !EFX_NO_KCOMPAT
 ifndef EFX_UPSTREAM
 ifeq ($(filter export export-xen,$(MAKECMDGOALS)),)
 ifndef EFX_FOR_UPSTREAM
-sfc-y			+= driverlink.o linux_mdio.o
+sfc-y			+= driverlink.o linux_mdio.o sfctool.o
 sfc-$(CONFIG_SFC_AOE)	+= aoe.o
 sfc-$(CONFIG_SFC_DEBUGFS) += debugfs.o
 endif # !EFX_FOR_UPSTREAM
@@ -150,7 +150,7 @@ obj-$(CONFIG_SFC)	+= sfc.o
 ifndef EFX_UPSTREAM
 
 # Compiler flags
-EXTRA_CFLAGS += -I$(src) -Wall -Wno-unused-label -Wno-deprecated-declarations -DEFX_USE_KCOMPAT=1 -DWITH_MCDI_V2
+EXTRA_CFLAGS += -I$(src) -Wall -Wno-deprecated-declarations -DEFX_USE_KCOMPAT=1 -DWITH_MCDI_V2
 ifdef EFX_FOR_UPSTREAM
 EXTRA_CFLAGS += -include config.h
 else
@@ -266,7 +266,7 @@ ifneq ($(filter 2.6.16-% 2.6.16.%,$(KVER)),)
 EXTRA_MAKEFLAGS := KERNELRELEASE=$(KVER)
 endif
 ifneq ($(CC),)
-EXTRA_MAKEFLAGS += CC=$(CC)
+EXTRA_MAKEFLAGS += CC="$(CC)"
 endif
 ifdef KMP_RELEASE
 EXTRA_MAKEFLAGS += KMP_RELEASE=1
