@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -522,4 +522,10 @@ int ci_tcp_helper_os_sock_create_and_set(ci_netif *ni, ci_fd_t fd,
   return rc;
 }
 
+
+int ci_tcp_helper_alloc_active_wild(ci_netif *ni)
+{
+  return oo_resource_op(ci_netif_get_driver_handle(ni),
+                        OO_IOC_ALLOC_ACTIVE_WILD, NULL);
+}
 

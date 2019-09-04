@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -1274,6 +1274,10 @@ void oo_file_ref_drop(struct oo_file_ref* fr)
 {
   ci_assert(fr != NULL);
   ci_assert(fr->file != NULL);
+
+  /* Caveat: On some kernels, this check does not detect the case where the
+   * caller is holding a spinlock, so calling this function while holding a
+   * spinlock is not safe. */
   if( ! (in_atomic() || in_interrupt()) ) {
     fput(fr->file);
     kfree(fr);

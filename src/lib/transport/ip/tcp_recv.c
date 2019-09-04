@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -682,6 +682,7 @@ int ci_tcp_recvmsg(const ci_tcp_recvmsg_args* a)
     int rc2;
 
     /* This function drops the socket lock, and returns unlocked. */
+    ci_assert(!rinf.stack_locked);
     rc2 = ci_sock_sleep(ni, &ts->s.b, CI_SB_FLAG_WAKE_RX,
                         CI_SLEEP_SOCK_LOCKED | CI_SLEEP_SOCK_RQ,
                         sleep_seq, &timeout);

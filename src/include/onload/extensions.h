@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -14,7 +14,7 @@
 */
 
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -616,6 +616,23 @@ struct onload_tcp_info {
 extern int
 onload_get_tcp_info(int fd, struct onload_tcp_info* info, int* len_in_out);
 
+
+/**********************************************************************
+ * onload_socket_nonaccel: create a non-accelerated socket
+ *
+ * This function creates a socket that is not accelerated by Onload.
+ * It is possible to do the same, more flexibly, using the Onload
+ * stackname API.  This can be useful when attempting to reserve a
+ * port for an ephemeral ef_vi instance without installing Onload
+ * filters.
+ *
+ * This function takes arguments and returns values that correspond
+ * exactly to the standard socket() function call.  In addition, it
+ * will return -1 with errno ENOSYS if the onload extensions library
+ * is not in use.
+ */
+extern int
+onload_socket_nonaccel(int domain, int type, int protocol);
 
 #ifdef __cplusplus
 }

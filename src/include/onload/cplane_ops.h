@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -106,6 +106,10 @@ CICP_SYSBODY(
 
 #undef CICP_SYSBODY
 #undef CICP_SYSCALL
+
+#ifdef CI_USE_GCC_VISIBILITY
+#pragma GCC visibility push(default)
+#endif
 
 /*!
  * Establish forwarding information.
@@ -290,6 +294,10 @@ extern int /*bool*/
 cicppl_mac_defer_send(ci_netif *netif, int *out_os_rc,
 		      ci_ip_addr_t ip, oo_pkt_p ip_pktid, ci_ifid_t ifindex);
 
+
+#ifdef CI_USE_GCC_VISIBILITY
+#pragma GCC visibility pop
+#endif
 
 #endif
 

@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -663,6 +663,7 @@
  * for epolls sets - CI_CFG_EPOLL1_SETS_PER_STACK.
  */
 #define CI_CFG_N_READY_LISTS (CI_CFG_EPOLL1_SETS_PER_STACK + 1)
+
 
 #endif /* __CI_INTERNAL_TRANSPORT_CONFIG_OPT_H__ */
 /*! \cidoxg_end */

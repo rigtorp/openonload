@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -251,8 +251,8 @@ OO_INTERCEPT(int, socket,
   }
 
   citp_enter_lib(&lib_context);
-  Log_CALL(ci_log("%s(%s, %s, %d)", __FUNCTION__, domain_str(domain),
-		  type_str(type), protocol));
+  Log_CALL(ci_log("%s(%s, "CI_SOCK_TYPE_FMT", %d)", __FUNCTION__,
+                  domain_str(domain), CI_SOCK_TYPE_ARGS(type), protocol));
 
   rc = citp_protocol_manager_create_socket(domain, type, protocol);
   
@@ -2329,7 +2329,7 @@ OO_INTERCEPT(int, setuid, (uid_t uid))
 
 
 /* On linux, this interception is necessary:
- * - for kernel<=2.6.21, since onloadfs files do not have proper i_mode;
+ * - since onloadfs files cannot have S_IFSOCK set in i_mode;
  * - for epoll, since it is a char device. */
 OO_INTERCEPT(int, __fxstat,
              (int ver, int fd, struct stat *stat_buf))

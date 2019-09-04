@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -330,14 +330,14 @@ int falcon_ef_eventq_poll(ef_vi* evq, ef_event* evs, int evs_len)
 }
 
 
-int ef_eventq_has_event(ef_vi* vi)
+int ef_eventq_has_event(const ef_vi* vi)
 {
   EF_VI_ASSERT(vi->evq_base);
   return EF_VI_IS_EVENT(EF_VI_EVENT_PTR(vi, 0));
 }
 
 
-int ef_eventq_has_many_events(ef_vi* vi, int look_ahead)
+int ef_eventq_has_many_events(const ef_vi* vi, int look_ahead)
 {
   EF_VI_BUG_ON(look_ahead < 0);
   return EF_VI_IS_EVENT(EF_VI_EVENT_PTR(vi, look_ahead));

@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -24,8 +24,13 @@ extern "C" {
 #include <cplane/shared_types.h>
 
 /* Get cplane handle.  Initializes such a handle if it does not exist for
- * this process. */
-extern cicp_handle_t *cicp_get_handle(const char *api_version, int fd);
+ * this process.
+ *
+ * A minimum value for the fd is specified by the fd_base parameter.  This
+ * allows a region of the fd space to be avoided.
+ */
+extern cicp_handle_t *cicp_get_handle(const char *api_version, int fd,
+                                      int fd_base) CI_DV;
 
 #ifdef __cplusplus
 }

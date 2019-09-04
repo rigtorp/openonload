@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -215,6 +215,12 @@ int ci_tcp_helper_open_shared_event(ci_netif *ni, ci_fd_t fd,
 
 extern int ci_tcp_helper_set_tcp_close_os_sock(ci_netif *ni,
                                                oo_sp sock_id) CI_HF;
+
+/*--------------------------------------------------------------------
+ *!
+ * Try and expand the active wild pool
+ *--------------------------------------------------------------------*/
+extern int ci_tcp_helper_alloc_active_wild(ci_netif *ni);
 
 #endif /* __CI_UL_TCP_HELPER_H__ */
 

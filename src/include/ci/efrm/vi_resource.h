@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -452,5 +452,7 @@ extern void efrm_vi_get_mappings(struct efrm_vi *, struct efrm_vi_mappings *);
 extern int
 efrm_vi_tx_alt_alloc(struct efrm_vi *virs, int num_alt, int num_32b_words);
 
+extern int
+efrm_vi_tx_alt_free(struct efrm_vi *virs);
 
 #endif /* __CI_EFRM_VI_RESOURCE_H__ */

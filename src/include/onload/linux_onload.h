@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -94,6 +94,25 @@ static inline int oo_sock_sendmsg(struct socket *sock, struct msghdr *msg)
 #define sock_sendmsg oo_sock_sendmsg
 #endif
 
+
+#ifdef EFRM_SOCK_RECVMSG_NEEDS_BYTES
+static inline int oo_sock_recvmsg(struct socket *sock, struct msghdr *msg,
+                                  int flags)
+{
+  size_t bytes = 0;
+
+#ifdef EFRM_HAVE_MSG_ITER
+  bytes = msg->msg_iter.count;
+#else
+  int i;
+  for( i = 0; i < msg->msg_iovlen; ++i )
+    bytes += msg->msg_iov[i].iov_len;
+#endif
+  return sock_recvmsg(sock, msg, bytes, flags);
+
+}
+#define sock_recvmsg oo_sock_recvmsg
+#endif
 
 /*--------------------------------------------------------------------
  *

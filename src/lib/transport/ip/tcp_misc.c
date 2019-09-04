@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -82,6 +82,11 @@ const char* type_str(int type)
     "<unknown>",              /* 9 */
     "SOCK_PACKET"             /* 10 */
   };
+#ifndef SOCK_TYPE_MASK
+#define SOCK_TYPE_MASK 0xf
+#endif
+
+  type &= SOCK_TYPE_MASK;
 
   if (type < 0 || type >= (sizeof (type_strs) / sizeof (type_strs[0])))
     return "<out of range>";
@@ -160,7 +165,8 @@ const char* ci_tcp_state_num_str(int state_i)
     "FREE",
     "UDP",
     "PIPE",
-    "ALIEN",
+    "AUXBUF",
+    "ACTIVE_WILD",
   };
 
   if( state_i < 0 || state_i >= (sizeof(state_strs) / sizeof(state_strs[0])) )

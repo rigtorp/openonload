@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -602,6 +602,7 @@ void efx_mcdi_mon_remove(struct efx_nic *efx)
 		device_remove_file(&efx->pci_dev->dev,
 				   &hwmon->attrs[i].dev_attr);
 	kfree(hwmon->attrs);
+	hwmon->attrs = NULL;
 	if (!IS_ERR_OR_NULL(hwmon->device))
 		hwmon_device_unregister(hwmon->device);
 	efx_nic_free_buffer(efx, &hwmon->dma_buf);

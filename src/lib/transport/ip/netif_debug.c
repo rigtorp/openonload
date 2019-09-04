@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -250,8 +250,7 @@ void ci_netif_dump_sockets_to_logger(ci_netif* ni, oo_dump_log_fn_t logger,
 
   for( id = 0; id < ns->n_ep_bufs; ++id ) {
     citp_waitable_obj* wo = ID_TO_WAITABLE_OBJ(ni, id);
-    if( wo->waitable.state != CI_TCP_STATE_FREE &&
-        wo->waitable.state != CI_TCP_CLOSED ) {
+    if( wo->waitable.state != CI_TCP_STATE_FREE ) {
       citp_waitable_dump_to_logger(ni, &wo->waitable, "", logger, log_arg);
       logger(log_arg,
              "------------------------------------------------------------");

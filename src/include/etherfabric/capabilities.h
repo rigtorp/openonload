@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -176,6 +176,12 @@ enum ef_vi_capability {
 
   /** Availability of TX alternatives */
   EF_VI_CAP_TX_ALTERNATIVES,
+
+  /** Number of TX alternatives vFIFOs */
+  EF_VI_CAP_TX_ALTERNATIVES_VFIFOS,
+
+  /** Number of TX alternatives common pool buffers */
+  EF_VI_CAP_TX_ALTERNATIVES_CP_BUFFERS,
 
   /** Maximum value of capabilities enumeration */
   EF_VI_CAP_MAX, /* Keep this last */

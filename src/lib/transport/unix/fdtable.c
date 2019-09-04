@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -1470,7 +1470,8 @@ int citp_ep_dup3(unsigned fromfd, unsigned tofd, int flags)
   if( fdip_is_reserved(tofdip) ) {
     /* ?? FIXME: we can't cope with this at the moment */
     CITP_FDTABLE_UNLOCK();
-    Log_U(log("%s(%d, %d): target is reserved", __FUNCTION__, fromfd, tofd));
+    Log_U(log("%s(%d, %d): target is reserved, see EF_ONLOAD_FD_BASE",
+              __FUNCTION__, fromfd, tofd));
     errno = EBUSY;
     tofd = -1;
     goto out;

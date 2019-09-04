@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -14,7 +14,7 @@
 */
 
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -282,6 +282,12 @@ static inline void alt_go(ef_vi* vi)
   TRY(ef_vi_transmit_alt_go(vi, tx_alt.send_id++ & TX_ALT_MASK));
 }
 
+static inline void alt_discard(ef_vi* vi)
+{
+  TRY(ef_vi_transmit_alt_discard(vi, tx_alt.send_id & TX_ALT_MASK));
+  TRY(ef_vi_transmit_alt_free(vi, driver_handle));
+}
+
 static inline void alt_send(ef_vi* vi)
 {
   alt_assert_state_validity();
@@ -301,7 +307,7 @@ static const test_t alt_test = {
   .ping = alt_ping,
   .pong = alt_pong,
   /* Flush the alternative before freeing it. */
-  .cleanup = alt_go,
+  .cleanup = alt_discard,
 };
 
 

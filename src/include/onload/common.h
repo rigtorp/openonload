@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -374,6 +374,23 @@ typedef struct ci_cfg_ioctl_desc_s {
 #define CICFG_DESC_EINVAL    10 /* database not valid */
 #define CICFG_DESC_EAGAIN    11 /* retry the operation */
 } ci_cfg_ioctl_desc_t;
+
+
+/* "Donation" shared memory ioctl structures. */
+
+typedef struct {
+  ci_int32       shm_class;
+  ci_user_ptr_t  buffer;
+  ci_uint32      length;
+  ci_int32       buffer_id;
+} oo_dshm_register_t;
+
+typedef struct {
+  ci_int32       shm_class;
+  ci_user_ptr_t  buffer_ids;
+  ci_uint32      count;
+} oo_dshm_list_t;
+
 
 /*--------------------------------------------------------------------
  *

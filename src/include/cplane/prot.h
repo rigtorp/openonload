@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -38,6 +38,10 @@
 #include <ci/compat.h>
 #include <ci/net/arp.h>
 
+
+#ifdef CI_USE_GCC_VISIBILITY
+#pragma GCC visibility push(default)
+#endif
 
 /*----------------------------------------------------------------------------
  * O/S-specific Operations
@@ -116,6 +120,9 @@ cicppl_handle_icmp(cicp_handle_t *control_plane,
 		   const ci_ip4_hdr*, size_t ip_len);
 
 
+#ifdef CI_USE_GCC_VISIBILITY
+#pragma GCC visibility pop
+#endif
 
 #endif /* __CI_DRIVER_EFAB_CPLANE_PROT_H__ */
 

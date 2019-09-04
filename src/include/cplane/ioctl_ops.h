@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -36,7 +36,7 @@
 
 #ifdef __ci_driver__
 
-#define CICP_SYSCALL extern
+#define CICP_SYSCALL CI_DV extern
 #define CICP_SYSBODY(_body) ;
 
 #else /* not part of the driver - generate system calls */
@@ -154,6 +154,9 @@ CICP_SYSBODY(
 }
 #endif
 
+
+#undef CICP_SYSBODY
+#undef CICP_SYSCALL
 
 
 #endif /* __CI_INTERNAL_CPLANE_OPS_H__ */

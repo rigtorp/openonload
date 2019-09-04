@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -493,4 +493,11 @@ fail:
     citp_fdinfo_release_ref(fdi, 0);
   citp_exit_lib(&lib_context, FALSE);
   return rc;
+}
+
+
+
+int onload_socket_nonaccel(int domain, int type, int protocol)
+{
+  return ci_sys_socket(domain, type, protocol);
 }

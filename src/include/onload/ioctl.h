@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -251,6 +251,15 @@ enum {
   OO_OP_GET_CPLANE_FD,
 #define OO_IOC_GET_CPLANE_FD      OO_IOC_R(GET_CPLANE_FD, \
                                            ci_fixed_descriptor_t)
+
+  OO_OP_DSHM_REGISTER,
+#define OO_IOC_DSHM_REGISTER      OO_IOC_RW(DSHM_REGISTER, oo_dshm_register_t)
+
+  OO_OP_DSHM_LIST,
+#define OO_IOC_DSHM_LIST          OO_IOC_RW(DSHM_LIST, oo_dshm_list_t)
+
+  OO_OP_ALLOC_ACTIVE_WILD,
+#define OO_IOC_ALLOC_ACTIVE_WILD  OO_IOC_NONE(ALLOC_ACTIVE_WILD)
 
   OO_OP_END  /* This had better be last! */
 };

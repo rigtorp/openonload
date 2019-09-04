@@ -1,5 +1,5 @@
 /*
-** Copyright 2005-2016  Solarflare Communications Inc.
+** Copyright 2005-2017  Solarflare Communications Inc.
 **                      7505 Irvine Center Drive, Irvine, CA 92618, USA
 ** Copyright 2002-2005  Level 5 Networks Inc.
 **
@@ -43,7 +43,7 @@ struct efx_loopback_self_tests {
 
 /* Efx self test results
  * For fields which are not counters, 1 indicates success and -1
- * indicates failure.
+ * indicates failure; 0 indicates test could not be run.
  */
 struct efx_self_tests {
 	/* online tests */
